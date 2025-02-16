@@ -1,6 +1,10 @@
-# LLM_stereotypes
+# LLM stereotypes
+
+This project's aim is to test the cognitive bias of open source SLMs ('Small' Language models, 2b-9b parameters), regarding the effects of stereotypes, through prompt engineering and a SAT practice test.
+
+
 ## General background
-LLMs are trained on big data, based on human texts, interactions and ideas, encompassing multiple domains, ideas and ideologies. It is likely that many psychological paradigms are apparent in the texts LLMs are being trained on. For example, priming is a common way to make LLMs provide more accurate responses. Chen, Liu & co. have proven in their research from 2024 that LLMs could be affected by cognitive biases beyond, such as the anchoring bias, decoy effect, and reference dependence, during relevance assessment tasks.
+LLMs/SLMs are trained on big data, based on human texts, interactions and ideas, encompassing multiple domains, ideas and ideologies. It is likely that many psychological paradigms are apparent in the texts LLMs are being trained on. For example, priming is a common way to make LLMs/SLMs provide more accurate responses. Chen, Liu & co. have proven in their research from 2024 that LLMs/SLMs could be affected by cognitive biases beyond, such as the anchoring bias, decoy effect, and reference dependence, during relevance assessment tasks.
 
 In Psychology, an intriguing effect had been studies and proven, names "Sterotype threat". Stereotype threat is a phenomenon where members of a minority group, judge themselves in light of the positive or negative stereotypes that target their group. 
 
@@ -39,6 +43,12 @@ To assess model performance, I used a SAT practice test, added to this repositor
 ## Results
 
 ### Gemma 2b
-The base score for the model was 61.29%, when running
+The base success rate of the model is *61.29%*, which is 19/31 right answers.
+
+Under both the Asian and African American prompts, the immediate result was a decrease to *58.06%*, merely by replacing "logic expert" to "African American woman"/"Asian student". This did not repeat itself in the 9b model.
+
+The addition of the general stereotype (telling the model mind that performance on this test has often been studied to reveal disparities across gender and racial lines) affected the different conditions differently. It did not change the results for the African American women condition, but *improved the results for the Asian condition back to 61.29%*.
+
+
 
 ## Running this experiment
