@@ -1,3 +1,4 @@
+
 # LLM stereotypes
 
 This project's aim is to test the cognitive bias of open source SLMs ('Small' Language models, 2b-9b parameters), regarding the effects of stereotypes, through prompt engineering and a SAT practice test.
@@ -38,6 +39,11 @@ To assess model performance, I used a SAT practice test, added to this repositor
 2) Mild stereotype - with no racial hints.
 3) Positive stereotype - replacing "Asian" with "subject"
 4) Negative stereotype - replaceing "African American women" with "subjects"
+
+### Control - reverse
+*In this setting, I reversed the stereotypes, and added the opposing stereotype to each racial context*
+1) Positive stereotype - African American women prompt + replacing "Asian" with "African American woman"
+2) Negative stereotype - Asian prompt + replacing "African American women" with "Asians"
 
 ## Results and conclusions
 
