@@ -13,7 +13,7 @@ Shih, Pittinsky, and Ambady found in 1999 that reminding Asian-American women on
 In addition, A foundational study by Steele and Aronson (1995) demonstrated that African Americans performed worse on intellectual tests when their race was emphasized, highlighting the detrimental effects of stereotype threat. Moreover, research has explored how multiple identities, such as race and gender, intersect to influence performance, and definite results have yet to be found.(Marvin, 2019).
 
 ## This experiment
-In this smaller scope experiment, like in Liu's experiment, I hypothesize cognitive bias would affect LLMs, and specifically that stereotype threat would also make part of that.
+In this smaller scope experiment, like in Malberg's experiment, I hypothesize cognitive bias would affect LLMs, and specifically that stereotype threat would also make part of that.
 
 I chose to run two models - Google Gemma 2b and Google Gemma 9b, and I set three base test conditions: Base (the model is told it is an AI expert) African American women (The model is told it is an African American woman), and Asian (The model is told it is Asian). 
 
