@@ -47,7 +47,22 @@ To assess model performance, I used a SAT practice test, added to this repositor
 
 ## Results and conclusions
 
-Since every question was processed by the model independently, the score represents *the probability to answer correctly*. In the stereotype threat experiments, the subjects *respond to an entire test at once*.
+Since every question was processed by the model independently, the score represents *the probability to answer correctly*. In the stereotype threat experiments, the subjects *respond to an entire test at once*. 
+
+| **Prompt Identity**    | **Stereotype Condition**                                                          | **Gemma 2B Score** | **Gemma 9B Score**           |
+|------------------------|-----------------------------------------------------------------------------------|--------------------|------------------------------|
+| **Base** (logic expert)| No additional stereotype                                                          | 61.29% (19/31)     | 77.42% (24/31)               |
+| **Base** (logic expert)| Mild stereotype (no racial hints)                                                 | 61.29%             | 77.42%                       |
+| **Base** (logic expert)| Positive stereotype (non-racial)                                                  | 61.29%             | 74.19% (decrease)            |
+| **Base** (logic expert)| Negative stereotype (non-racial)                                                  | 54.83%             | 77.42% (no change)           |
+| **African American**   | No additional stereotype                                                          | 58.06%             | 77.42%                       |
+| **African American**   | Mild stereotype (general mention of racial/gender test disparities)               | 58.06%             | 77.42%                       |
+| **African American**   | Severe/negative stereotype (historical lower scores, need to “overcome obstacles”)| 54.83%             | 80.65% (improved)            |
+| **Asian**             | No additional stereotype                                                           | 58.06%             | 77.42%                       |
+| **Asian**             | Mild stereotype (general mention of racial/gender test disparities)                | 61.29%             | 77.42%                       |
+| **Asian**             | Positive stereotype (emphasizing Asian overperformance in tests)                   | 64.51% (highest 2B)| 80.65% (improved)            |
+| **Control (reverse)** | Asian prompt + African American woman’s “negative” stereotype (misaligned)         | 54.84%             | 74.19% (decrease)            |
+| **Control (reverse)** | African American woman prompt + Asian’s “positive” stereotype (misaligned)         | 64.51%             | 77.42%                       |
 
 ### Gemma 2b
 
@@ -79,11 +94,13 @@ Such interesting results were also seen in the positive sterotype for the Asian 
 
 In conclusion, it is highly likely the in gemma 9b's training and definitions compensation for racial stereotypes was implemented. Perhaps, in order to fit social standards of its users.
 
+ 
+
 ## Running this experiment
 
 1. Make sure you have access to Google Gemma 2b and Google Gemma 9b. Access is immediate and free:
-    1. 2b model: https://huggingface.co/google/gemma-2-2b-it
-    2. 9b model: https://huggingface.co/google/gemma-2-9b-it
+    1. 2b model: https://huggingface.co/google/gemma-2-2b-it (commit hash: 299a8560bedf22ed1c72a8a11e7dce4a7f9f51f8)
+    2. 9b model: https://huggingface.co/google/gemma-2-9b-it (commit hash: 11c9b309abf73637e4b6f9a3fa1e92e615547819)
 2. Get an access token from databricks, and make sure you have an environment variable "HF_TOKEN" with your key before running each notebook.
 3. The notebooks were ran from Google Colab with a T4 GPU, and from the same directory as other files in this repository. Running on g6.2xlarge on AWS or on local Linux machines with a GPU should also work, but not tested.
 
@@ -91,17 +108,27 @@ In conclusion, it is highly likely the in gemma 9b's training and definitions co
 
 ### Future research
 
-In future research trials, I would suggest to expand the question bank (to thousands instead of 31), and see the effect when runnning on thousands of different questions. 
+In future research trials, I would suggest to expand the question bank (to thousands instead of 31), and see the effect when runnning on thousands of different questions. More on that in the section below about statistical significance. Bias in language models (and how it’s tested) often has many layers—beyond performance on a single standardized test, so testing it on more kinds of tests other than SAT, in different languages (Would the Asian stereotype have effect in Chinese or Korean?) and with more groups (priviliged groups like white men, dispriviliged groups like people from poor socio-economic societies etc.)
 
-In the scope of this experiment, I did not check for performance on specific questions - repeating a small experiment such as this, but with analysis of the success of specific questions under the different conditions.
+In the scope of this experiment, I did not check for performance on specific questions (e.g. if under some condition, the models performed better on word completion or on logic tasks) - repeating a small experiment such as this, but with analysis of the success of specific questions under the different conditions.
 
 In addition, an experiment with greater GPU memory or with a different design, could allow including several questions in one prompt, and make the experiment setting more like a test and not an average probability to answer correctly.
 
 Another interesing addition would be to add a condition completely unfamiliar to the SLMs such as a made up characer, or an unrelated character like an outer space alien.
 
+## Statistical significance
+
+In this small experiment, the goal was to look for a general direction of the results. The small number of examples, leaves very small room for statistical significance to occur. In a two proportion Z-score, in order to obtain p=0.05 for one sided tests require an increase from 19/31 (in the 2b model) to 25/31, which is better than the baseline score for the 9b model!
+
+In order to achieve statistical significance, an increase from dozens of questions to thousands of questions in necessary. It is common knowledge that a 9b model outperforms a 2b model, but it couldn't reach statistically significant improvement. It was not thought that the change of the prompts would improve the 2b model to the extent of outperforming the 9b model. With a large enough dataset of questions, replicating the very probabilities presented in this experiment could provide significant results.
+
 ### Why not ChatGPT?
 
 It is highly likely that if a 9b model scored close to 80%, the recent models of GPT (at the time of writing) will succeed at 100%, or near 100%, under all conditions due to their high reasoning capabilities.
+
+### Ethical implications
+
+If the final conclusion on a much wider experiment, with higher variation would be that models overperform when given certain stereotypes - would it open the door for LLM developers to use these stereotypes in their prompt engineering? If so, would it be reflected in the models' responses, language or prejudice? We live in societies where multiple minorities are exposed to stereotype threat, as well as many other difficult implications of stereotypical prejudice, and giving LLMs a prejudicial baseline could perpetuate these. 
 
 
 ### Credits and acknowledgments
