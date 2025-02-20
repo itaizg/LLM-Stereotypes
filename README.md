@@ -1,53 +1,49 @@
+# LLM Stereotypes
 
-# LLM stereotypes
+This project's aim is to test the cognitive bias of open-source SLMs ('Small' Language Models, 2B-9B parameters) regarding the effects of stereotypes through prompt engineering and an SAT practice test.
 
-This project's aim is to test the cognitive bias of open source SLMs ('Small' Language models, 2b-9b parameters), regarding the effects of stereotypes, through prompt engineering and a SAT practice test.
+## General Background
+LLMs/SLMs are trained on big data, based on human texts, interactions, and ideas, encompassing multiple domains, ideas, and ideologies. It is likely that many psychological paradigms that usually fit the human mind are apparent in the texts LLMs are trained on. For example, priming, an effective way to influence human responses, is commonly used to make LLMs/SLMs provide more accurate responses. Malberg, Poletukhin & co. have proven in their research from 2024 that LLMs/SLMs could be affected by over 30 different cognitive biases in the realm of decision-making, such as LLMs exhibiting discriminatory decision-making (stereotyping)!
 
+In psychology, an intriguing effect has been studied and proven, called "stereotype threat." Stereotype threat is a phenomenon where members of a minority group judge themselves in light of the positive or negative stereotypes that target their group.
 
-## General background
-LLMs/SLMs are trained on big data, based on human texts, interactions and ideas, encompassing multiple domains, ideas and ideologies. It is likely that many psychological paradigms are apparent in the texts LLMs are being trained on. For example, priming is a common way to make LLMs/SLMs provide more accurate responses.  Malberg, Poletukhin & co. have proven in their research from 2024 that LLMs/SLMs could be affected by over 30 different cognitive biases in the realm of decision making, such LLMs' exhibition of discriminatory decision making (sterotyping)!
+Shih, Pittinsky, and Ambady found in 1999 that reminding Asian-American women of their Asian identity improved their test scores, in contrast to when they were reminded of their feminine identities.
 
-In Psychology, an intriguing effect had been studies and proven, namef "Stertype threat". Stereotype threat is a phenomenon where members of a minority group, judge themselves in light of the positive or negative stereotypes that target their group. 
+In addition, a foundational study by Steele and Aronson (1995) demonstrated that African Americans performed worse on intellectual tests when their race was emphasized, highlighting the detrimental effects of stereotype threat. Moreover, research has explored how multiple identities, such as race and gender, intersect to influence performance, and definite results have yet to be found (Marvin, 2019).
 
-Shih, Pittinsky, and Ambady found in 1999 that reminding Asian-American women on their Asian identity improved their tests scores, in contrast to when they were reminded on their feminine identities. 
+## This Experiment
+In this smaller-scope experiment, like in Malberg's experiment, I hypothesize that cognitive bias would affect LLMs, and specifically, that stereotype threat would also play a part in that.
 
-In addition, A foundational study by Steele and Aronson (1995) demonstrated that African Americans performed worse on intellectual tests when their race was emphasized, highlighting the detrimental effects of stereotype threat. Moreover, research has explored how multiple identities, such as race and gender, intersect to influence performance, and definite results have yet to be found.(Marvin, 2019).
+I chose to run two models—Google Gemma 2B and Google Gemma 9B—and set three base test conditions: Base (the model is told it is a logic expert), African American woman (the model is told it is an African American woman), and Asian (the model is told it is Asian).
 
-## This experiment
-In this smaller scope experiment, like in Malberg's experiment, I hypothesize cognitive bias would affect LLMs, and specifically that stereotype threat would also make part of that.
-
-I chose to run two models - Google Gemma 2b and Google Gemma 9b, and I set three base test conditions: Base (the model is told it is an AI expert) African American women (The model is told it is an African American woman), and Asian (The model is told it is Asian). 
-
-To assess model performance, I used a SAT practice test, added to this repository. The test comprised of 33 questions, 31 of which were used for this experiment (without questions formatted as tables).
-
+To assess model performance, I used an SAT practice test, added to this repository. The test comprised 33 questions, 31 of which were used for this experiment (excluding questions formatted as tables).
 
 ### African American Women
 *Under the African American woman prompt, I tested three conditions:* 
 1) Just telling the model it is an African American woman
-2) Mild stereotype -  telling the model mind that performance on this test has often been studied to reveal disparities across gender and racial lines, which can highlight challenges faced by specific groups
+2) Mild stereotype - telling the model that performance on this test has often been studied to reveal disparities across gender and racial lines, which can highlight challenges faced by specific groups
 3) Severe stereotype - reminding the model, in addition to the mild stereotype, that this group historically scores lower on tests, and that success on the test could help prove that the subject could overcome these obstacles
 
 ### Asian
 *Under the Asian prompt, I tested three conditions:*
-1) Just telling the model it is an Asian
+1) Just telling the model it is Asian
 2) Mild stereotype - same as above
-3) Positive stereotype - emphasizing Asian capabilities in mathematics, linguistics and logic, and a general tendency to overperform in tests.
+3) Positive stereotype - emphasizing Asian capabilities in mathematics, linguistics, and logic, and a general tendency to overperform in tests.
 
 ### Base
-*Under the base prompt, I tested four conditions*
+*Under the base prompt, I tested four conditions:*
 1) Just telling the model it is a logic expert
 2) Mild stereotype - with no racial hints.
 3) Positive stereotype - replacing "Asian" with "subject"
-4) Negative stereotype - replaceing "African American women" with "subjects"
+4) Negative stereotype - replacing "African American woman" with "subjects"
 
-### Control - reverse
-*In this setting, I reversed the stereotypes, and added the opposing stereotype to each racial context*
-1) Positive stereotype - African American women prompt + replacing "Asian" with "African American woman"
-2) Negative stereotype - Asian prompt + replacing "African American women" with "Asians"
+### Control – Reverse
+*In this setting, I reversed the stereotypes and added the opposing stereotype to each racial context:*
+1) Positive stereotype – African American woman prompt + replacing "Asian" with "African American woman"
+2) Negative stereotype – Asian prompt + replacing "African American woman" with "Asians"
 
-## Results and conclusions
-
-Since every question was processed by the model independently, the score represents *the probability to answer correctly*. In the stereotype threat experiments, the subjects *respond to an entire test at once*. 
+## Results and Conclusions
+Since every question was processed by the model independently, the score represents *the probability of answering correctly*. In stereotype threat experiments, the subjects *respond to an entire test at once*.
 
 | **Prompt Identity**    | **Stereotype Condition**                                                          | **Gemma 2B Score** | **Gemma 9B Score**           |
 |------------------------|-----------------------------------------------------------------------------------|--------------------|------------------------------|
@@ -62,7 +58,7 @@ Since every question was processed by the model independently, the score represe
 | **Asian**             | Mild stereotype (general mention of racial/gender test disparities)                | 61.29%             | 77.42%                       |
 | **Asian**             | Positive stereotype (emphasizing Asian overperformance in tests)                   | 64.51% (highest 2B)| 80.65% (improved)            |
 | **Control (reverse)** | Asian prompt + African American woman’s “negative” stereotype (misaligned)         | 54.84%             | 74.19% (decrease)            |
-| **Control (reverse)** | African American woman prompt + Asian’s “positive” stereotype (misaligned)         | 64.51%             | 77.42%                       |
+| **Control (reverse)** | African American woman prompt + Asian’s “positive” stereotype (misaligned)         | 64.51% (highest 2B)| 77.42%                       |
 
 ### Gemma 2b
 
