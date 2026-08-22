@@ -165,3 +165,7 @@ cython_debug/
 # Harness run cache and downloaded source PDFs (not redistributed)
 results/cache/
 data/pdfs/
+
+# Throwaway artifacts from the CI harness-smoke job (.github/workflows/ci.yml)
+ci_results/
+compare.json
