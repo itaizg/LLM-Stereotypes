@@ -1,2 +1,4 @@
-pytest
-ruff
+# Pinned so `ruff check` cannot start failing CI on an unrelated ruff
+# release that widens its default rule set. Bump deliberately.
+pytest==9.1.1
+ruff==0.16.4
