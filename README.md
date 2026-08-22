@@ -1,5 +1,7 @@
 # LLM Stereotypes
 
+[![CI](https://github.com/itaizg/LLM-Stereotypes/actions/workflows/ci.yml/badge.svg)](https://github.com/itaizg/LLM-Stereotypes/actions/workflows/ci.yml)
+
 This project's aim is to test the cognitive bias of open-source SLMs ('Small' Language Models, 2B-9B parameters) regarding the effects of stereotypes through prompt engineering and an SAT practice test.
 
 ## General Background

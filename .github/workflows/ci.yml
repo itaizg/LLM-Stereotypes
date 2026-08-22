@@ -1,0 +1,152 @@
+name: CI
+
+# Every job here runs on the core dependency set only (pyyaml/numpy/scipy/
+# matplotlib) against MockBackend -- no GPU, no model weights, no network,
+# no API keys. That is a deliberate property of the harness, not a CI
+# limitation: see requirements-model.txt for what local inference needs.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install lint tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format --check
+        run: ruff format --check .
+
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # CLAUDE.md sets the floor at 3.11 (harness/cache.py uses
+        # typing.Self, harness/manifest.py uses datetime.UTC).
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install core + dev dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest
+        run: pytest -q
+
+  harness-smoke:
+    name: harness CLI end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install core dependencies
+        run: pip install -r requirements.txt
+
+      # Drives the harness through its own CLI rather than importing it,
+      # so the run/report/compare contract is covered as a user hits it.
+      - name: Run two suites through the CLI against MockBackend
+        run: |
+          python -m harness run suites/stereotype_threat \
+            --backend mock --models ci-baseline --n-samples 5 \
+            --mock-target-accuracy 0.55 --results-dir ci_results
+          python -m harness run suites/stereotype_threat \
+            --backend mock --models ci-candidate --n-samples 5 \
+            --mock-target-accuracy 0.85 --results-dir ci_results
+
+      - name: Re-render the report for the baseline run
+        run: |
+          BASELINE=$(ls -d ci_results/stereotype_threat_ci-baseline_*)
+          python -m harness report "$BASELINE"
+
+      - name: Compare the two runs
+        run: |
+          BASELINE=$(ls -d ci_results/stereotype_threat_ci-baseline_*)
+          CANDIDATE=$(ls -d ci_results/stereotype_threat_ci-candidate_*)
+          python -m harness compare "$BASELINE" "$CANDIDATE" > compare.json
+          cat compare.json
+
+      # Asserts the artifacts a run is contractually required to produce,
+      # and that the deliberately-injected 30-point accuracy gap between
+      # the two runs is actually detected -- i.e. the statistics are wired
+      # up, not just running without raising.
+      - name: Assert artifacts and detected effect
+        run: |
+          python - <<'PY'
+          import glob
+          import json
+          import sys
+          from pathlib import Path
+
+          baseline = Path(glob.glob("ci_results/stereotype_threat_ci-baseline_*")[0])
+
+          required = [
+              "manifest.json",
+              "responses.jsonl",
+              "scores.csv",
+              "stats.json",
+              "report.md",
+              "plots/accuracy.png",
+          ]
+          missing = [name for name in required if not (baseline / name).exists()]
+          if missing:
+              sys.exit(f"run artifacts missing: {missing}")
+
+          stats = json.loads((baseline / "stats.json").read_text())
+          if len(stats["accuracies"]) != 12:
+              sys.exit(f"expected 12 conditions, got {len(stats['accuracies'])}")
+          if len(stats["contrasts"]) != 9:
+              sys.exit(f"expected 9 contrasts, got {len(stats['contrasts'])}")
+
+          comparison = json.loads(Path("compare.json").read_text())
+          detected = [
+              cid
+              for cid, r in comparison["comparisons"].items()
+              if r["description"] != "not distinguishable from noise"
+          ]
+          if not detected:
+              sys.exit(
+                  "compare failed to detect a 30-point injected accuracy gap "
+                  "in any of the 12 conditions"
+              )
+
+          print(f"OK: {len(detected)}/12 conditions detected the injected gap")
+          PY
