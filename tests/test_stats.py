@@ -110,7 +110,7 @@ def test_holm_correction_never_makes_pvalues_smaller():
     pvalues = [0.001, 0.04, 0.03, 0.5]
     adjusted = holm_correction(pvalues)
     assert len(adjusted) == len(pvalues)
-    for raw, adj in zip(pvalues, adjusted):
+    for raw, adj in zip(pvalues, adjusted, strict=True):
         assert adj >= raw
 
 

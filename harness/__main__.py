@@ -24,7 +24,8 @@ def _build_backend(backend_name: str, model_label: str):
         spec = MODEL_REGISTRY.get(model_label)
         if spec is None:
             raise SystemExit(
-                f"unknown model label {model_label!r}; known labels: {sorted(MODEL_REGISTRY)}"
+                f"unknown model label {model_label!r}; "
+                f"known labels: {sorted(MODEL_REGISTRY)}"
             )
         return HFLocalBackend(
             spec["model_id"],

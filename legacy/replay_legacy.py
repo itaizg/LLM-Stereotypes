@@ -63,7 +63,8 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     if Path.cwd().resolve() != repo_root:
         print(
-            f"warning: run this from {repo_root} so legacy/utils.py finds ./questions.json",
+            f"warning: run this from {repo_root} so legacy/utils.py "
+            f"finds ./questions.json",
             file=sys.stderr,
         )
 

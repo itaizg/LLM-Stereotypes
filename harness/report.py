@@ -74,7 +74,9 @@ def compute_stats(run_dir: Path | str, suites_root: Path | str = "suites") -> di
 
     pvalues = [contrasts[c.id].mcnemar_p for c in treatment_conditions]
     adjusted = holm_correction(pvalues) if pvalues else []
-    adjusted_pvalues = {c.id: adj for c, adj in zip(treatment_conditions, adjusted)}
+    adjusted_pvalues = {
+        c.id: adj for c, adj in zip(treatment_conditions, adjusted, strict=True)
+    }
 
     power = {
         c.id: power_analysis_for_contrast(contrasts[c.id]) for c in treatment_conditions
@@ -134,13 +136,17 @@ def render_report_markdown(stats: dict) -> str:
             "improvement or a deterioration."
         ),
         "",
-        "| Treatment | Control | Δ | 95% CI | McNemar p (Holm) | Result | N needed for this effect |",
+        (
+            "| Treatment | Control | Δ | 95% CI | McNemar p (Holm) | Result "
+            "| N needed for this effect |"
+        ),
         "|---|---|---:|---|---:|---|---:|",
     ]
     for c in stats["contrasts"].values():
         required_n = c["required_n_questions_for_observed_effect"]
         lines.append(
-            f"| {c['treatment_id']} | {c['control_id']} | {c['mean_diff'] * 100:+.1f}pts "
+            f"| {c['treatment_id']} | {c['control_id']} "
+            f"| {c['mean_diff'] * 100:+.1f}pts "
             f"| [{c['ci_low'] * 100:+.1f}, {c['ci_high'] * 100:+.1f}] "
             f"| {c['mcnemar_p_holm']:.3f} | {c['description']} "
             f"| {required_n if required_n is not None else 'n/a'} |"

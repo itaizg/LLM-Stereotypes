@@ -15,7 +15,7 @@ import json
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from harness.backends.base import BackendDescriptor
@@ -98,7 +98,7 @@ def build_manifest(
         temperature=temperature,
         git_sha=_git_sha(),
         git_dirty=_git_dirty(),
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         package_versions=_package_versions(_TRACKED_PACKAGES),
         python_version=sys.version,
     )
