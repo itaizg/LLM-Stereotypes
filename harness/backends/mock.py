@@ -10,7 +10,7 @@ recovers a known ground truth within its computed confidence interval.
 from __future__ import annotations
 
 import hashlib
-from typing import Mapping, Optional
+from collections.abc import Mapping
 
 from harness.backends.base import BackendDescriptor, ModelBackend
 
@@ -38,7 +38,7 @@ class MockBackend(ModelBackend):
     def descriptor(self) -> BackendDescriptor:
         return BackendDescriptor(name="mock", model_id="mock-deterministic")
 
-    def _target_for(self, condition_id: Optional[str]) -> float:
+    def _target_for(self, condition_id: str | None) -> float:
         if isinstance(self._target_accuracy, Mapping):
             return self._target_accuracy.get(condition_id or "", 0.6)
         return self._target_accuracy
@@ -49,7 +49,7 @@ class MockBackend(ModelBackend):
         *,
         seed: int,
         temperature: float,
-        context: Optional[Mapping[str, str]] = None,
+        context: Mapping[str, str] | None = None,
     ) -> str:
         context = context or {}
         question_id = context.get("question_id", "")
@@ -63,13 +63,20 @@ class MockBackend(ModelBackend):
 
         if gold is None:
             # No ground truth available: answer deterministically but arbitrarily.
-            idx = int(hashlib.sha256(f"{seed}|{question_id}".encode()).hexdigest(), 16) % 4
+            idx = (
+                int(hashlib.sha256(f"{seed}|{question_id}".encode()).hexdigest(), 16)
+                % 4
+            )
             return _LETTERS[idx]
 
-        correctness_roll = _unit_interval_hash("correct", str(seed), question_id, condition_id or "")
+        correctness_roll = _unit_interval_hash(
+            "correct", str(seed), question_id, condition_id or ""
+        )
         if correctness_roll < self._target_for(condition_id):
             return gold
 
         wrong_letters = [letter for letter in _LETTERS if letter != gold]
-        idx = int(hashlib.sha256(f"wrong|{seed}|{question_id}".encode()).hexdigest(), 16) % len(wrong_letters)
+        idx = int(
+            hashlib.sha256(f"wrong|{seed}|{question_id}".encode()).hexdigest(), 16
+        ) % len(wrong_letters)
         return wrong_letters[idx]

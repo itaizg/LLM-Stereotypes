@@ -42,7 +42,9 @@ CONDITIONS = {
     # what suites/stereotype_threat/conditions.yaml's
     # control_reverse_negative encodes.
     "control_reverse_negative_as_actually_run": lambda p: (
-        p.BASE_PROMPT + "\n" + p.EXTENDED_BLACK_STEREOTYPE.replace("Asianss", "subjects")
+        p.BASE_PROMPT
+        + "\n"
+        + p.EXTENDED_BLACK_STEREOTYPE.replace("Asianss", "subjects")
     ),
 }
 
@@ -53,7 +55,9 @@ def main() -> None:
     )
     parser.add_argument("--model", default="google/gemma-2-2b-it")
     parser.add_argument("--condition", choices=sorted(CONDITIONS), default="base_none")
-    parser.add_argument("--repeats", type=int, default=20, help="matches the notebooks' range(20)")
+    parser.add_argument(
+        "--repeats", type=int, default=20, help="matches the notebooks' range(20)"
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
@@ -63,23 +67,28 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    from transformers import pipeline
-
     import prompts  # legacy/prompts.py, via the sys.path insert above
     import utils  # legacy/utils.py, via the sys.path insert above
+    from transformers import pipeline
 
-    pipe = pipeline("text-generation", model=args.model, device_map="auto", max_new_tokens=50)
+    pipe = pipeline(
+        "text-generation", model=args.model, device_map="auto", max_new_tokens=50
+    )
     prompt = CONDITIONS[args.condition](prompts)
 
     # temperature=1 is what every "main" run in the notebooks passed.
     # Because of bug #1, do_sample evaluates to False here — greedy
     # decoding — so every one of these `repeats` calls is expected to
     # return the identical score, not `repeats` independent samples.
-    scores = [utils.get_model_score(pipe, prompt, temperature=1) for _ in range(args.repeats)]
+    scores = [
+        utils.get_model_score(pipe, prompt, temperature=1) for _ in range(args.repeats)
+    ]
 
     print(f"condition: {args.condition}")
     print(f"scores across {args.repeats} 'repeats': {scores}")
-    print(f"all identical (proves greedy decoding, not sampling): {len(set(scores)) == 1}")
+    print(
+        f"all identical (proves greedy decoding, not sampling): {len(set(scores)) == 1}"
+    )
 
 
 if __name__ == "__main__":

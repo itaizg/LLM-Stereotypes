@@ -23,10 +23,16 @@ from harness.backends.base import BackendDescriptor
 
 def _run_git(*args: str) -> str:
     try:
-        return subprocess.check_output(
-            ["git", *args], stderr=subprocess.DEVNULL, cwd=Path(__file__).resolve().parent
-        ).decode().strip()
-    except Exception:
+        return (
+            subprocess.check_output(
+                ["git", *args],
+                stderr=subprocess.DEVNULL,
+                cwd=Path(__file__).resolve().parent,
+            )
+            .decode()
+            .strip()
+        )
+    except (OSError, subprocess.CalledProcessError):
         return ""
 
 

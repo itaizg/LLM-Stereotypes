@@ -14,7 +14,6 @@ import csv
 import json
 import time
 from pathlib import Path
-from typing import Optional
 
 from harness.backends.base import ModelBackend
 from harness.cache import ResponseCache
@@ -32,10 +31,10 @@ def run_suite(
     backend: ModelBackend,
     *,
     model_label: str,
-    n_samples: Optional[int] = None,
-    temperature: Optional[float] = None,
+    n_samples: int | None = None,
+    temperature: float | None = None,
     results_dir: Path | str = "results",
-    cache_path: Optional[Path | str] = None,
+    cache_path: Path | str | None = None,
 ) -> Path:
     n_samples = n_samples if n_samples is not None else config.n_samples_default
     temperature = temperature if temperature is not None else config.temperature_default
@@ -54,9 +53,11 @@ def run_suite(
 
     questions_by_id = {q.question_id: q for q in config.questions}
 
-    with ResponseCache(cache_path) as cache, open(
-        run_dir / RESPONSES_FILENAME, "w"
-    ) as responses_f, open(run_dir / SCORES_FILENAME, "w", newline="") as scores_f:
+    with (
+        ResponseCache(cache_path) as cache,
+        open(run_dir / RESPONSES_FILENAME, "w") as responses_f,
+        open(run_dir / SCORES_FILENAME, "w", newline="") as scores_f,
+    ):
         scores_writer = csv.writer(scores_f)
         scores_writer.writerow(
             [
@@ -89,7 +90,10 @@ def run_suite(
                     prompt,
                     seed=job.seed,
                     temperature=temperature,
-                    context={"question_id": job.question_id, "condition_id": job.condition_id},
+                    context={
+                        "question_id": job.question_id,
+                        "condition_id": job.condition_id,
+                    },
                 )
                 cache.put(cache_key, raw_response)
 

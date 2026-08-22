@@ -12,7 +12,7 @@ network access; not used by tests.
 from __future__ import annotations
 
 import os
-from typing import Mapping, Optional
+from collections.abc import Mapping
 
 from harness.backends.base import BackendDescriptor, ModelBackend
 
@@ -22,7 +22,7 @@ class ApiBackend(ModelBackend):
         self,
         model_id: str,
         *,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
         api_key_env: str = "ANTHROPIC_API_KEY",
         max_tokens: int = 50,
     ) -> None:
@@ -39,7 +39,9 @@ class ApiBackend(ModelBackend):
 
     @property
     def descriptor(self) -> BackendDescriptor:
-        return BackendDescriptor(name="api", model_id=self._model_id, device=self._base_url or "api")
+        return BackendDescriptor(
+            name="api", model_id=self._model_id, device=self._base_url or "api"
+        )
 
     def generate(
         self,
@@ -47,7 +49,7 @@ class ApiBackend(ModelBackend):
         *,
         seed: int,
         temperature: float,
-        context: Optional[Mapping[str, str]] = None,
+        context: Mapping[str, str] | None = None,
     ) -> str:
         response = self._client.chat.completions.create(
             model=self._model_id,

@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import Self
 
 
 class ResponseCache:
@@ -39,10 +39,17 @@ class ResponseCache:
     ) -> str:
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         return "|".join(
-            [backend, model_rev or "", prompt_hash, question_id, str(sample_idx), str(seed)]
+            [
+                backend,
+                model_rev or "",
+                prompt_hash,
+                question_id,
+                str(sample_idx),
+                str(seed),
+            ]
         )
 
-    def get(self, cache_key: str) -> Optional[str]:
+    def get(self, cache_key: str) -> str | None:
         row = self._conn.execute(
             "SELECT response FROM responses WHERE cache_key = ?", (cache_key,)
         ).fetchone()
@@ -58,7 +65,7 @@ class ResponseCache:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> "ResponseCache":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc_info) -> None:

@@ -12,7 +12,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -26,7 +25,7 @@ class Identity:
 @dataclass(frozen=True)
 class Stereotype:
     id: str
-    text: Optional[str]
+    text: str | None
 
 
 @dataclass(frozen=True)
@@ -35,7 +34,7 @@ class Condition:
     identity: str
     stereotype: str
     role: str
-    control_of: Optional[str] = None
+    control_of: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,10 +94,12 @@ def load_suite(suite_dir: Path | str) -> SuiteConfig:
         raw_questions = json.load(f)
 
     identities = {
-        iid: Identity(id=iid, text=data["text"]) for iid, data in raw["identities"].items()
+        iid: Identity(id=iid, text=data["text"])
+        for iid, data in raw["identities"].items()
     }
     stereotypes = {
-        sid: Stereotype(id=sid, text=data.get("text")) for sid, data in raw["stereotypes"].items()
+        sid: Stereotype(id=sid, text=data.get("text"))
+        for sid, data in raw["stereotypes"].items()
     }
     conditions = tuple(
         Condition(
@@ -148,7 +149,7 @@ class Job:
 
 def _job_seed(model: str, condition_id: str, question_id: str, sample_idx: int) -> int:
     digest = hashlib.sha256(
-        f"{model}|{condition_id}|{question_id}|{sample_idx}".encode("utf-8")
+        f"{model}|{condition_id}|{question_id}|{sample_idx}".encode()
     ).hexdigest()
     return int(digest[:8], 16)
 
@@ -165,6 +166,10 @@ def expand_jobs(config: SuiteConfig, models: list[str], n_samples: int) -> list[
         for condition in config.conditions:
             for question in config.questions:
                 for sample_idx in range(n_samples):
-                    seed = _job_seed(model, condition.id, question.question_id, sample_idx)
-                    jobs.append(Job(model, condition.id, question.question_id, sample_idx, seed))
+                    seed = _job_seed(
+                        model, condition.id, question.question_id, sample_idx
+                    )
+                    jobs.append(
+                        Job(model, condition.id, question.question_id, sample_idx, seed)
+                    )
     return jobs

@@ -8,8 +8,9 @@ runner.py, cache.py, or scoring.py.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional, Protocol
+from typing import Protocol
 
 
 @dataclass(frozen=True)
@@ -18,8 +19,8 @@ class BackendDescriptor:
 
     name: str
     model_id: str
-    revision: Optional[str] = None
-    device: Optional[str] = None
+    revision: str | None = None
+    device: str | None = None
 
 
 class ModelBackend(Protocol):
@@ -32,7 +33,7 @@ class ModelBackend(Protocol):
         *,
         seed: int,
         temperature: float,
-        context: Optional[Mapping[str, str]] = None,
+        context: Mapping[str, str] | None = None,
     ) -> str:
         """Return the raw completion text for one prompt.
 

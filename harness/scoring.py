@@ -13,19 +13,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 # Order matters: earlier patterns are stricter and are tried first so a
 # clean "B" is never mis-extracted by a looser fallback pattern.
-_STRICT_LINE = re.compile(r"^\s*\(?([A-D])\)?[.:]?\s*$", re.MULTILINE)
-_BOLD = re.compile(r"\*\*\s*([A-D])\s*\*\*")
-_PHRASE = re.compile(r"\b(?:answer is|answer:|choose)\s*\**\s*\(?([A-D])\)?\b", re.IGNORECASE)
-_LEADING = re.compile(r"^\s*\(?([A-D])\)?\b")
+_STRICT_LINE = re.compile(r"^\s*\(?([A-D])\)?[.:]?\s*$", re.MULTILINE | re.IGNORECASE)
+_BOLD = re.compile(r"\*\*\s*([A-D])\s*\*\*", re.IGNORECASE)
+_PHRASE = re.compile(
+    r"\b(?:answer(?:\s+is)?|choose)\s*:?\s*\**\s*\(?([A-D])\)?\b", re.IGNORECASE
+)
+_LEADING = re.compile(r"^\s*\(?([A-D])\)?\b", re.IGNORECASE)
 
 _PATTERNS = (_STRICT_LINE, _BOLD, _PHRASE, _LEADING)
 
 
-def extract_answer(raw_response: str) -> Optional[str]:
+def extract_answer(raw_response: str) -> str | None:
     text = raw_response.strip()
     if not text:
         return None
@@ -38,7 +39,7 @@ def extract_answer(raw_response: str) -> Optional[str]:
 
 @dataclass(frozen=True)
 class ScoredResponse:
-    extracted_answer: Optional[str]
+    extracted_answer: str | None
     is_extraction_failure: bool
     is_correct: bool
 
@@ -46,7 +47,9 @@ class ScoredResponse:
 def score_response(raw_response: str, gold_answer: str) -> ScoredResponse:
     extracted = extract_answer(raw_response)
     if extracted is None:
-        return ScoredResponse(extracted_answer=None, is_extraction_failure=True, is_correct=False)
+        return ScoredResponse(
+            extracted_answer=None, is_extraction_failure=True, is_correct=False
+        )
     return ScoredResponse(
         extracted_answer=extracted,
         is_extraction_failure=False,

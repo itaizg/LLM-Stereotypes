@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from harness.config import load_suite
 from harness.stats import (
@@ -40,7 +39,9 @@ def _accuracy_to_dict(a: AccuracyResult) -> dict:
     }
 
 
-def _contrast_to_dict(c: ContrastResult, adjusted_p: float, required_n: Optional[int]) -> dict:
+def _contrast_to_dict(
+    c: ContrastResult, adjusted_p: float, required_n: int | None
+) -> dict:
     return {
         "treatment_id": c.treatment_id,
         "control_id": c.control_id,
@@ -67,13 +68,17 @@ def compute_stats(run_dir: Path | str, suites_root: Path | str = "suites") -> di
     accuracies = {c.id: bootstrap_accuracy(rows, c.id) for c in config.conditions}
 
     treatment_conditions = [c for c in config.conditions if c.role == "treatment"]
-    contrasts = {c.id: paired_contrast(rows, c.id, c.control_of) for c in treatment_conditions}
+    contrasts = {
+        c.id: paired_contrast(rows, c.id, c.control_of) for c in treatment_conditions
+    }
 
     pvalues = [contrasts[c.id].mcnemar_p for c in treatment_conditions]
     adjusted = holm_correction(pvalues) if pvalues else []
     adjusted_pvalues = {c.id: adj for c, adj in zip(treatment_conditions, adjusted)}
 
-    power = {c.id: power_analysis_for_contrast(contrasts[c.id]) for c in treatment_conditions}
+    power = {
+        c.id: power_analysis_for_contrast(contrasts[c.id]) for c in treatment_conditions
+    }
 
     return {
         "run_id": run_dir.name,
@@ -105,7 +110,8 @@ def render_report_markdown(stats: dict) -> str:
         f"- backend: `{backend['name']}` / model `{backend['model_id']}`{revision}",
         f"- device: `{backend.get('device') or 'n/a'}`",
         f"- n_samples: {manifest['n_samples']}, temperature: {manifest['temperature']}",
-        f"- git: `{manifest['git_sha']}`" + (" (dirty)" if manifest["git_dirty"] else ""),
+        f"- git: `{manifest['git_sha']}`"
+        + (" (dirty)" if manifest["git_dirty"] else ""),
         "",
         "## Per-condition accuracy",
         "",
@@ -123,8 +129,10 @@ def render_report_markdown(stats: dict) -> str:
         "",
         "## Condition contrasts (vs. designated control arm)",
         "",
-        "A delta whose CI includes zero is reported as noise — never as an "
-        "improvement or a deterioration.",
+        (
+            "A delta whose CI includes zero is reported as noise — never as an "
+            "improvement or a deterioration."
+        ),
         "",
         "| Treatment | Control | Δ | 95% CI | McNemar p (Holm) | Result | N needed for this effect |",
         "|---|---|---:|---|---:|---|---:|",
@@ -156,10 +164,12 @@ def _write_accuracy_plot(stats: dict, run_dir: Path) -> None:
     conditions = list(stats["accuracies"])
     accuracies = [stats["accuracies"][c]["accuracy"] * 100 for c in conditions]
     lower_err = [
-        accuracies[i] - stats["accuracies"][c]["ci_low"] * 100 for i, c in enumerate(conditions)
+        accuracies[i] - stats["accuracies"][c]["ci_low"] * 100
+        for i, c in enumerate(conditions)
     ]
     upper_err = [
-        stats["accuracies"][c]["ci_high"] * 100 - accuracies[i] for i, c in enumerate(conditions)
+        stats["accuracies"][c]["ci_high"] * 100 - accuracies[i]
+        for i, c in enumerate(conditions)
     ]
 
     fig, ax = plt.subplots(figsize=(max(6, len(conditions) * 0.8), 5))
@@ -204,7 +214,10 @@ def compare_runs(
         control_means = per_question_means(rows_a, cid)  # run A is the baseline
         treatment_means = per_question_means(rows_b, cid)  # run B is the candidate
         contrast = contrast_from_means(
-            treatment_means, control_means, f"{run_b_dir.name}:{cid}", f"{run_a_dir.name}:{cid}"
+            treatment_means,
+            control_means,
+            f"{run_b_dir.name}:{cid}",
+            f"{run_a_dir.name}:{cid}",
         )
         comparisons[cid] = {
             "run_a_accuracy": sum(control_means.values()) / len(control_means),

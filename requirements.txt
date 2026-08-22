@@ -1,4 +1,4 @@
-transformers
+pyyaml
 numpy
+scipy
 matplotlib
-torch

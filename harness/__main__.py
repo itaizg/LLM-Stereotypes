@@ -1,8 +1,8 @@
 """CLI entry point:
 
-    python -m harness run suites/stereotype_threat --models gemma-2b,gemma-9b --n-samples 25
-    python -m harness report results/<run_id>
-    python -m harness compare results/<run_a> results/<run_b>
+python -m harness run suites/stereotype_threat --models gemma-2b,gemma-9b --n-samples 25
+python -m harness report results/<run_id>
+python -m harness compare results/<run_a> results/<run_b>
 """
 
 from __future__ import annotations
@@ -47,7 +47,9 @@ def cmd_run(args: argparse.Namespace) -> None:
             from harness.backends.mock import MockBackend
 
             gold_answers = {q.question_id: q.answer for q in config.questions}
-            backend = MockBackend(gold_answers, target_accuracy=args.mock_target_accuracy)
+            backend = MockBackend(
+                gold_answers, target_accuracy=args.mock_target_accuracy
+            )
         else:
             backend = _build_backend(args.backend, model_label)
 
@@ -82,8 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="run a suite against a backend")
     run_parser.add_argument("suite_dir", help="e.g. suites/stereotype_threat")
-    run_parser.add_argument("--models", required=True, help="comma-separated model labels")
-    run_parser.add_argument("--backend", default="hf_local", choices=["hf_local", "mock", "api"])
+    run_parser.add_argument(
+        "--models", required=True, help="comma-separated model labels"
+    )
+    run_parser.add_argument(
+        "--backend", default="hf_local", choices=["hf_local", "mock", "api"]
+    )
     run_parser.add_argument("--n-samples", type=int, default=None)
     run_parser.add_argument("--temperature", type=float, default=None)
     run_parser.add_argument("--results-dir", default="results")

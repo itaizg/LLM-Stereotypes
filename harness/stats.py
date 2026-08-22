@@ -21,7 +21,6 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from scipy import stats as scipy_stats
@@ -100,8 +99,12 @@ def bootstrap_accuracy(
     boot_means = _bootstrap_means(values, n_bootstrap, seed)
     ci_low, ci_high = np.percentile(boot_means, [2.5, 97.5])
 
-    failure_rates = per_question_means(rows, condition_id, field="is_extraction_failure")
-    overall_failure_rate = float(np.mean(list(failure_rates.values()))) if failure_rates else 0.0
+    failure_rates = per_question_means(
+        rows, condition_id, field="is_extraction_failure"
+    )
+    overall_failure_rate = (
+        float(np.mean(list(failure_rates.values()))) if failure_rates else 0.0
+    )
 
     return AccuracyResult(
         condition_id=condition_id,
@@ -173,7 +176,9 @@ def contrast_from_means(
     """
     shared_questions = sorted(set(treatment) & set(control))
     if not shared_questions:
-        raise ValueError(f"no shared questions between {treatment_id!r} and {control_id!r}")
+        raise ValueError(
+            f"no shared questions between {treatment_id!r} and {control_id!r}"
+        )
 
     t_values = np.array([treatment[q] for q in shared_questions])
     c_values = np.array([control[q] for q in shared_questions])
@@ -191,7 +196,9 @@ def contrast_from_means(
     if b + c == 0:
         mcnemar_p = 1.0
     else:
-        mcnemar_p = scipy_stats.binomtest(min(b, c), b + c, 0.5, alternative="two-sided").pvalue
+        mcnemar_p = scipy_stats.binomtest(
+            min(b, c), b + c, 0.5, alternative="two-sided"
+        ).pvalue
 
     return ContrastResult(
         treatment_id=treatment_id,
@@ -253,7 +260,7 @@ def power_analysis_for_contrast(
     *,
     alpha: float = 0.05,
     power: float = 0.8,
-) -> Optional[int]:
+) -> int | None:
     """Required N to detect the observed effect size at the given alpha
     and power, using the observed discordant rate as the assumed rate.
     None if there's no observed effect (or no disagreement at all) to
@@ -265,5 +272,8 @@ def power_analysis_for_contrast(
     if discordant_rate == 0:
         return None
     return required_n_questions(
-        abs(contrast.mean_diff), discordant_rate=discordant_rate, alpha=alpha, power=power
+        abs(contrast.mean_diff),
+        discordant_rate=discordant_rate,
+        alpha=alpha,
+        power=power,
     )

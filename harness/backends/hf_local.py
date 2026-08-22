@@ -7,7 +7,7 @@ or model weights.
 
 from __future__ import annotations
 
-from typing import Mapping, Optional
+from collections.abc import Mapping
 
 from harness.backends.base import BackendDescriptor, ModelBackend
 
@@ -25,7 +25,14 @@ def _select_device() -> str:
 class HFLocalBackend(ModelBackend):
     """Detects device at runtime (MPS -> CUDA -> CPU); never hardcode one."""
 
-    def __init__(self, model_id: str, *, revision: str, max_new_tokens: int = 50, device: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        model_id: str,
+        *,
+        revision: str,
+        max_new_tokens: int = 50,
+        device: str | None = None,
+    ) -> None:
         from transformers import pipeline
 
         self._model_id = model_id
@@ -55,7 +62,7 @@ class HFLocalBackend(ModelBackend):
         *,
         seed: int,
         temperature: float,
-        context: Optional[Mapping[str, str]] = None,
+        context: Mapping[str, str] | None = None,
     ) -> str:
         import torch
 

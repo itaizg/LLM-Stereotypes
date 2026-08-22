@@ -13,7 +13,10 @@ import yaml
 from legacy import prompts
 
 CONDITIONS_PATH = (
-    Path(__file__).resolve().parents[1] / "suites" / "stereotype_threat" / "conditions.yaml"
+    Path(__file__).resolve().parents[1]
+    / "suites"
+    / "stereotype_threat"
+    / "conditions.yaml"
 )
 
 
@@ -32,7 +35,10 @@ def test_identity_prompts_match_legacy_verbatim():
 def test_stereotype_fragments_match_legacy_verbatim():
     config = _load_conditions()
     assert config["stereotypes"]["mild"]["text"] == prompts.BASE_STEREOTYPE
-    assert config["stereotypes"]["black_severe"]["text"] == prompts.EXTENDED_BLACK_STEREOTYPE
+    assert (
+        config["stereotypes"]["black_severe"]["text"]
+        == prompts.EXTENDED_BLACK_STEREOTYPE
+    )
     assert config["stereotypes"]["asian_positive"]["text"] == prompts.ASIAN_STEREOTYPE
 
 
@@ -44,21 +50,25 @@ def test_base_positive_nonracial_matches_legacy_replace():
 
 def test_base_negative_nonracial_matches_legacy_replace():
     config = _load_conditions()
-    expected = prompts.EXTENDED_BLACK_STEREOTYPE.replace("African American women", "subjects")
+    expected = prompts.EXTENDED_BLACK_STEREOTYPE.replace(
+        "African American women", "subjects"
+    )
     assert config["stereotypes"]["base_negative_nonracial"]["text"] == expected
 
 
 def test_control_reverse_positive_matches_legacy_replace_chain():
     config = _load_conditions()
-    expected = prompts.ASIAN_STEREOTYPE.replace("Asians", "African American women").replace(
-        "Asian", "African American woman"
-    )
+    expected = prompts.ASIAN_STEREOTYPE.replace(
+        "Asians", "African American women"
+    ).replace("Asian", "African American woman")
     assert config["stereotypes"]["control_reverse_positive"]["text"] == expected
 
 
 def test_control_reverse_negative_matches_intended_fix_not_the_bug():
     config = _load_conditions()
-    intended = prompts.EXTENDED_BLACK_STEREOTYPE.replace("African American women", "Asians")
+    intended = prompts.EXTENDED_BLACK_STEREOTYPE.replace(
+        "African American women", "Asians"
+    )
     buggy_noop = prompts.EXTENDED_BLACK_STEREOTYPE.replace("Asianss", "subjects")
 
     # legacy/BUGS.md bug #2: "Asianss" never occurs, so the buggy .replace()
