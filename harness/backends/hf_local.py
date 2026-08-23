@@ -1,6 +1,6 @@
 """Local transformers backend for Gemma-2 2B/9B (and similar chat models).
 
-Requires requirements-model.txt (torch, transformers, accelerate) — not
+Requires the "model" extra (torch, transformers, accelerate) — not
 imported by anything in the core test path, so `pytest` never needs a GPU
 or model weights.
 """

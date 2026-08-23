@@ -13,7 +13,7 @@ always ran with the repo root as the working directory:
     python legacy/replay_legacy.py --model google/gemma-2-2b-it --condition base_none
 
 Requires the model weights and hardware to load Gemma-2 locally
-(requirements-model.txt) — this repo's CI/dev container has neither; run
+(the "model" extra) — this repo's CI/dev container has neither; run
 this on a machine that does (e.g. the author's M4 Max, or Colab).
 """
 
