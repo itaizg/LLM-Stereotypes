@@ -1,5 +1,7 @@
 # LLM Stereotypes
 
+[![CI](https://github.com/itaizg/LLM-Stereotypes/actions/workflows/ci.yml/badge.svg)](https://github.com/itaizg/LLM-Stereotypes/actions/workflows/ci.yml)
+
 This project's aim is to test the cognitive bias of open-source SLMs ('Small' Language Models, 2B-9B parameters) regarding the effects of stereotypes through prompt engineering and an SAT practice test.
 
 ## General Background
@@ -97,8 +99,10 @@ In conclusion, it is highly likely the in gemma 9b's training and definitions co
 1. Make sure you have access to Google Gemma 2b and Google Gemma 9b. Access is immediate and free:
     1. 2b model: https://huggingface.co/google/gemma-2-2b-it (commit hash: 299a8560bedf22ed1c72a8a11e7dce4a7f9f51f8)
     2. 9b model: https://huggingface.co/google/gemma-2-9b-it (commit hash: 11c9b309abf73637e4b6f9a3fa1e92e615547819)
-2. Get an access token from databricks, and make sure you have an environment variable "HF_TOKEN" with your key before running each notebook.
-3. The notebooks were ran from Google Colab with a T4 GPU, and from the same directory as other files in this repository. Running on g6.2xlarge on AWS or on local Linux machines with a GPU should also work, but not tested.
+2. Get an access token from Hugging Face, and make sure you have an environment variable "HF_TOKEN" with your key before running each notebook.
+3. The `experiment_gemma_2b.ipynb` and `experiment_gemma_9b.ipynb` notebooks were run from Google Colab with an A100 GPU; `temperature_comparison.ipynb` was run with a T4 GPU. Running on g6.2xlarge on AWS or on local Linux machines with a GPU should also work, but not tested.
+4. The original notebooks, `prompts.py`, and `utils.py` have moved to `legacy/` — see `legacy/BUGS.md` for known issues in that code before drawing conclusions from its output.
+5. The source SAT PDFs are not committed (College Board copyright); fetch them with `python data/fetch_sat.py` if you need the originals. The transcribed question bank lives in `questions.json`.
 
 ## Further remarks
 

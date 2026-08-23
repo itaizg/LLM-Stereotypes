@@ -1,0 +1,7 @@
+# Only needed for harness.backends.hf_local (local Gemma-2 inference).
+# The core harness, MockBackend, and the full test suite never import
+# these, so tests and CI stay GPU-free.
+torch
+transformers
+accelerate
+tqdm

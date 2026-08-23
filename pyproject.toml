@@ -1,0 +1,48 @@
+# Lint/format/test configuration.
+#
+# The rule set is pinned explicitly rather than relying on ruff's defaults:
+# those defaults widen between ruff releases, which would turn a green CI
+# red on an unrelated dependency bump. Together with the pinned ruff
+# version in requirements-dev.txt, this makes `ruff check` reproduce the
+# same result locally and in CI.
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+# The original notebooks and the two modules they imported are preserved
+# verbatim as the "before" of this repo's refactor (see legacy/BUGS.md).
+# They are deliberately outside the quality gate: linting or formatting
+# them would either keep CI permanently red or pressure someone into
+# editing a historical artifact. legacy/replay_legacy.py is new code and
+# IS linted.
+extend-exclude = [
+    "legacy/*.ipynb",
+    "legacy/prompts.py",
+    "legacy/utils.py",
+    # BUGS.md quotes the buggy legacy code verbatim inside ```python
+    # fences; reformatting those blocks would misrepresent what the
+    # original code actually looked like, which is the whole point of
+    # the document.
+    "legacy/BUGS.md",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+
+# "×" is deliberate in docstrings describing the run matrix
+# (models × conditions × questions × n_samples); it is not a typo for "x".
+allowed-confusables = ["×"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
