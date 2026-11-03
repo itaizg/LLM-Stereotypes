@@ -35,7 +35,7 @@ Environment constraints
 * Historical results were produced on CUDA (Colab T4). MPS numerics can differ slightly from CUDA, so record device/backend in every run manifest and treat small cross-device deltas (within the CIs) as reproduction, not regression.
 * Tests and CI remain GPU-free: everything under `tests/` runs against `MockBackend` (deterministic fake model) with no model weights and no network. API-model runs need only network + keys.
 * Secrets via env vars only (`HF_TOKEN`, `ANTHROPIC_API_KEY`, etc.). Never commit keys; never print them.
-* Python 3.11+. Use `uv` if available, else pip + a pinned `requirements.txt` (runtime) and `requirements-dev.txt` (lint/test).
+* Python 3.13. Use `uv` if available, else pip + a pinned `requirements.txt` (runtime) and `requirements-dev.txt` (lint/test).
 
 Target architecture
 

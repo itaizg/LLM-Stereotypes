@@ -24,9 +24,9 @@ Interpretation notes:
   - "couple/decouple" is read as: low coupling between modules, high cohesion within them.
 
 Follow-up TODOs (repository changes, not made by this amendment):
-  - ty is mandated (Principle I) but not yet configured: no [tool.ty] in pyproject.toml,
-    no ty hook in .pre-commit-config.yaml, no ty step in .github/workflows/ci.yml.
-  - ruff, pytest, pre-commit and GitHub Actions are already configured and compliant.
+  - None outstanding. ty is configured ([tool.ty] in pyproject.toml), runs as a
+    pre-commit hook, and therefore runs in CI through the pre-commit job.
+  - ruff, pytest, pre-commit and GitHub Actions are configured and compliant.
 -->
 
 # LLM-Stereotypes Constitution
@@ -120,14 +120,13 @@ how that claim stays true as the code grows.
 
 ## Quality Gates and Automation
 
-- pre-commit: `.pre-commit-config.yaml` MUST run ruff (check and format) and ty on staged
-  files. Hook revisions MUST be pinned to exact versions. Contributors MUST install the hooks
+- pre-commit: `.pre-commit-config.yaml` MUST run ruff (check and format) on staged files and
+  ty on the whole project (a signature change breaks callers in unchanged files). Hook revisions MUST be pinned to exact versions. Contributors MUST install the hooks
   (`pre-commit install`); bypassing them with `--no-verify` is not permitted for commits
   intended for `main`.
 - GitHub Actions: `.github/workflows/ci.yml` MUST, on every pull request and push to `main`,
-  run (1) all pre-commit hooks on all files, (2) pytest across every supported Python
-  version (3.11 minimum), and (3) an end-to-end harness CLI smoke test against
-  `MockBackend` that asserts required artifacts exist and an injected effect is detected.
+  run (1) all pre-commit hooks on all files, (2) pytest on Python 3.13, and (3) an
+  end-to-end harness CLI smoke test against `MockBackend` that asserts required artifacts exist and an injected effect is detected.
 - CI jobs MUST use least-privilege permissions (`contents: read` unless a job needs more),
   pinned action versions, and no secrets.
 - A pull request MUST NOT merge with a failing or skipped required check. Local gate and CI
@@ -142,7 +141,8 @@ how that claim stays true as the code grows.
   hand-filled numbers. Deltas within their confidence interval are reported as "not
   distinguishable from noise." Every reported number carries a CI; pairwise comparisons use
   Holm correction.
-- Dependencies: Python 3.11+, managed with `uv` and pinned. Heavyweight frameworks
+- Dependencies: Python 3.13, managed with `uv`, pinned in `uv.lock`; CI installs with
+  `uv sync --locked`. Heavyweight frameworks
   (LangChain, MLflow, W&B) MUST NOT be added. Model-inference packages stay in the optional
   `model` extra; the core install stays GPU-free.
 - Device handling: detect MPS → CUDA → CPU at runtime; never hardcode a device. Record
