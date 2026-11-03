@@ -83,18 +83,37 @@ class SuiteConfig:
         return f"{condition_prompt}\n{question.question}\n{choice_block}"
 
 
-def _validate_contrasts(conditions: tuple[Condition, ...]) -> None:
-    """Reject a treatment arm with no valid control at load time.
+_ROLES = ("control", "treatment")
 
-    Without this, a missing or misspelled `control_of` only surfaces in
-    the stats step -- after every generation for the run has been paid for.
+
+def _validate_contrasts(conditions: tuple[Condition, ...]) -> None:
+    """Reject malformed roles and contrasts at load time.
+
+    Without this, a missing or misspelled `control_of`, a misspelled role
+    (silently dropped from the stats) or a control from another identity
+    group (a contrast that measures the wrong thing) only surfaces after
+    every generation for the run has been paid for.
     """
-    controls = {c.id for c in conditions if c.role == "control"}
+    by_id = {c.id: c for c in conditions}
     for c in conditions:
-        if c.role == "treatment" and c.control_of not in controls:
+        if c.role not in _ROLES:
+            raise ValueError(
+                f"condition {c.id!r} has role {c.role!r}, expected one of {_ROLES}"
+            )
+    for c in conditions:
+        if c.role != "treatment":
+            continue
+        control = by_id.get(c.control_of) if c.control_of else None
+        if control is None or control.role != "control":
             raise ValueError(
                 f"treatment condition {c.id!r} must set control_of to a "
                 f"declared control condition, got {c.control_of!r}"
+            )
+        if control.identity != c.identity:
+            raise ValueError(
+                f"treatment condition {c.id!r} (identity {c.identity!r}) "
+                f"has control {control.id!r} from a different identity "
+                f"({control.identity!r})"
             )
 
 
