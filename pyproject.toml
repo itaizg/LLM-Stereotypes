@@ -18,6 +18,7 @@ dev = [
     "pytest==9.1.1",
     "pre-commit==4.4.0",
     "pre-commit-uv==4.3.0",
+    "ty==0.0.96",
 ]
 model = [
     "torch",
@@ -54,6 +55,19 @@ select = [
 ]
 
 allowed-confusables = ["×"]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+# legacy/ is the preserved pre-harness code (exempt per the constitution);
+# .specify/ is vendored Spec Kit tooling, not project code.
+exclude = ["legacy/", ".specify/"]
+
+[tool.ty.analysis]
+# Optional inference engines, imported lazily inside the backends that need
+# them. The core install (and CI) is deliberately GPU-free without them.
+allowed-unresolved-imports = ["torch", "transformers", "openai"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
