@@ -83,6 +83,21 @@ class SuiteConfig:
         return f"{condition_prompt}\n{question.question}\n{choice_block}"
 
 
+def _validate_contrasts(conditions: tuple[Condition, ...]) -> None:
+    """Reject a treatment arm with no valid control at load time.
+
+    Without this, a missing or misspelled `control_of` only surfaces in
+    the stats step -- after every generation for the run has been paid for.
+    """
+    controls = {c.id for c in conditions if c.role == "control"}
+    for c in conditions:
+        if c.role == "treatment" and c.control_of not in controls:
+            raise ValueError(
+                f"treatment condition {c.id!r} must set control_of to a "
+                f"declared control condition, got {c.control_of!r}"
+            )
+
+
 def load_suite(suite_dir: Path | str) -> SuiteConfig:
     suite_dir = Path(suite_dir)
     conditions_path = suite_dir / "conditions.yaml"
@@ -111,6 +126,7 @@ def load_suite(suite_dir: Path | str) -> SuiteConfig:
         )
         for c in raw["conditions"]
     )
+    _validate_contrasts(conditions)
     questions = tuple(
         Question(
             question_id=q["question_id"],

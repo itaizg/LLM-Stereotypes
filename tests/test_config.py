@@ -1,4 +1,8 @@
+import shutil
 from pathlib import Path
+
+import pytest
+import yaml
 
 from harness.config import expand_jobs, load_suite
 
@@ -24,6 +28,20 @@ def test_load_suite_control_conditions_have_no_control_of():
         # every control_of points at a real, declared control condition
         referenced = config.condition(t.control_of)
         assert referenced.role == "control"
+
+
+@pytest.mark.parametrize("control_of", [None, "no_such_condition"])
+def test_load_suite_rejects_treatment_without_valid_control(tmp_path, control_of):
+    suite_dir = tmp_path / "suite"
+    shutil.copytree(SUITE_DIR, suite_dir)
+    conditions_path = suite_dir / "conditions.yaml"
+    raw = yaml.safe_load(conditions_path.read_text())
+    treatment = next(c for c in raw["conditions"] if c["role"] == "treatment")
+    treatment["control_of"] = control_of
+    conditions_path.write_text(yaml.safe_dump(raw))
+
+    with pytest.raises(ValueError, match=treatment["id"]):
+        load_suite(suite_dir)
 
 
 def test_assemble_prompt_separates_stem_and_choices_with_newline():
