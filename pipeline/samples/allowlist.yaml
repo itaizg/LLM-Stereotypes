@@ -1,0 +1,5 @@
+# Openly licensed question samples that may be committed (FR-025, FR-026).
+# Format: specs/001-exam-data-aggregation/contracts/manifests.md.
+# Empty on purpose: whether a source is openly licensed is decided per source
+# from its official licence statement, never assumed.
+samples: []
