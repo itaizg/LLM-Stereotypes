@@ -294,13 +294,13 @@ reading `exam_status.parquet` from the same snapshot (contracts/outputs.md).
 
 ## View: `integrity_violations` (SC-002, SC-004)
 
-One row per `(check, subject_id)` that breaks an invariant the schema's constraints cannot
+One row per `(check_name, subject_id)` that breaks an invariant the schema's constraints cannot
 express on their own. `snapshot` counts these rows inside its transaction and refuses to
 publish (exit 3) if any exist, printing counts per check, never text. The test suite
 checks the same view on synthetic data. The checks:
 
-| `check` | A row means |
-|---------|-------------|
+| `check_name` | A row means |
+|--------------|-------------|
 | `edition_without_output` | an `ingested` edition has no non-retired question and no failure row |
 | `key_not_official` | an `answer_keys` row's `artifact_sha256` is not an artifact with role `key` or `key_erratum` for the question's edition |
 | `english_missing` | a non-retired question (or a text stimulus) in a non-English edition has no preferred translation and no `translate`-stage failure |
