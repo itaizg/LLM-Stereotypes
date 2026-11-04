@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "llm-stereotypes"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.26",
@@ -18,6 +18,7 @@ dev = [
     "pytest==9.1.1",
     "pre-commit==4.4.0",
     "pre-commit-uv==4.3.0",
+    "ty==0.0.96",
 ]
 model = [
     "torch",
@@ -31,7 +32,7 @@ include = ["harness*", "legacy*"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py313"
 
 extend-exclude = [
     "legacy/*.ipynb",
@@ -54,6 +55,19 @@ select = [
 ]
 
 allowed-confusables = ["×"]
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.src]
+# legacy/ is the preserved pre-harness code (exempt per the constitution);
+# .specify/ is vendored Spec Kit tooling, not project code.
+exclude = ["legacy/", ".specify/"]
+
+[tool.ty.analysis]
+# Optional inference engines, imported lazily inside the backends that need
+# them. The core install (and CI) is deliberately GPU-free without them.
+allowed-unresolved-imports = ["torch", "transformers", "openai"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

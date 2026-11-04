@@ -68,8 +68,12 @@ def compute_stats(run_dir: Path | str, suites_root: Path | str = "suites") -> di
     accuracies = {c.id: bootstrap_accuracy(rows, c.id) for c in config.conditions}
 
     treatment_conditions = [c for c in config.conditions if c.role == "treatment"]
+    # load_suite guarantees every treatment has a control; the walrus only
+    # narrows `str | None` for the type checker.
     contrasts = {
-        c.id: paired_contrast(rows, c.id, c.control_of) for c in treatment_conditions
+        c.id: paired_contrast(rows, c.id, control_id)
+        for c in treatment_conditions
+        if (control_id := c.control_of) is not None
     }
 
     pvalues = [contrasts[c.id].mcnemar_p for c in treatment_conditions]

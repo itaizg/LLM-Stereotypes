@@ -4,3 +4,16 @@ repos:
     hooks:
       - id: ruff-check
       - id: ruff-format
+
+  # ty resolves imports against the project environment (numpy, scipy,
+  # pytest, ...), so it runs through uv in the locked project venv rather
+  # than an isolated hook env. It checks the whole project, not just staged
+  # files, because a signature change breaks callers in unchanged files.
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty check
+        entry: uv run --locked --extra dev ty check
+        language: system
+        types: [python]
+        pass_filenames: false

@@ -6,7 +6,16 @@ README's prose (legacy/BUGS.md's context) — pinning them here is what
 makes an hf_local run reproducible across machines and time.
 """
 
-MODEL_REGISTRY = {
+from typing import TypedDict
+
+
+class ModelSpec(TypedDict):
+    model_id: str
+    revision: str
+    max_new_tokens: int
+
+
+MODEL_REGISTRY: dict[str, ModelSpec] = {
     "gemma-2b": {
         "model_id": "google/gemma-2-2b-it",
         "revision": "299a8560bedf22ed1c72a8a11e7dce4a7f9f51f8",

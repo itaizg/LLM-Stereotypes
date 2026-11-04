@@ -1,4 +1,9 @@
+import shutil
 from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
 
 from harness.config import expand_jobs, load_suite
 
@@ -24,6 +29,53 @@ def test_load_suite_control_conditions_have_no_control_of():
         # every control_of points at a real, declared control condition
         referenced = config.condition(t.control_of)
         assert referenced.role == "control"
+
+
+def _copy_suite_with_edit(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Copy the real suite to tmp_path/suite; return raw conditions + a treatment."""
+    shutil.copytree(SUITE_DIR, tmp_path / "suite")
+    raw = yaml.safe_load((tmp_path / "suite" / "conditions.yaml").read_text())
+    treatment = next(c for c in raw["conditions"] if c["role"] == "treatment")
+    return raw, treatment
+
+
+def _write_conditions(tmp_path: Path, raw: dict[str, Any]) -> None:
+    (tmp_path / "suite" / "conditions.yaml").write_text(yaml.safe_dump(raw))
+
+
+@pytest.mark.parametrize("control_of", [None, "no_such_condition"])
+def test_load_suite_rejects_treatment_without_valid_control(
+    tmp_path: Path, control_of: str | None
+) -> None:
+    raw, treatment = _copy_suite_with_edit(tmp_path)
+    treatment["control_of"] = control_of
+    _write_conditions(tmp_path, raw)
+
+    with pytest.raises(ValueError, match=treatment["id"]):
+        load_suite(tmp_path / "suite")
+
+
+def test_load_suite_rejects_control_from_other_identity(tmp_path: Path) -> None:
+    raw, treatment = _copy_suite_with_edit(tmp_path)
+    other = next(
+        c
+        for c in raw["conditions"]
+        if c["role"] == "control" and c["identity"] != treatment["identity"]
+    )
+    treatment["control_of"] = other["id"]
+    _write_conditions(tmp_path, raw)
+
+    with pytest.raises(ValueError, match="different identity"):
+        load_suite(tmp_path / "suite")
+
+
+def test_load_suite_rejects_unknown_role(tmp_path: Path) -> None:
+    raw, treatment = _copy_suite_with_edit(tmp_path)
+    treatment["role"] = "treatement"
+    _write_conditions(tmp_path, raw)
+
+    with pytest.raises(ValueError, match="treatement"):
+        load_suite(tmp_path / "suite")
 
 
 def test_assemble_prompt_separates_stem_and_choices_with_newline():

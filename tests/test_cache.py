@@ -1,3 +1,5 @@
+from typing import Any
+
 from harness.cache import ResponseCache
 
 
@@ -34,7 +36,7 @@ def test_cache_persists_across_connections(tmp_path):
 
 
 def test_make_key_differs_on_every_component():
-    base = {
+    base: dict[str, Any] = {
         "backend": "mock",
         "model_rev": "rev1",
         "prompt": "p",
