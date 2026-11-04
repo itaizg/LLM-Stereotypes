@@ -22,7 +22,9 @@ Both live in Postgres with Parquet snapshots in S3, and suite-ready `questions.j
 - **Exam catalog (`exam_editions`):** one row per exam × year × sitting/form/province, with `edition_id`, status (`ingested` / `not_released` / `blocked`), official release date, official URL, and evidence. It is complete even for editions that yielded no questions.
 - **Questions dataset:** tables `questions`, `translations`, `answer_keys`, and `extraction_failures`. Every row references an `edition_id`.
 - **Supporting tables:** `sources` (discovered URLs) and `artifacts` (raw files), each linked to an edition.
-- Each question row carries: a stable `question_id`, an `edition_id`, a `canonical_question_id` (dedupe link), section, original-language text and choices, an English version with `translation_source` (official or MT), the official key, modality flags, and provenance (URL, artifact SHA-256, page, pipeline git SHA).
+- `questions` holds original-language content only: a stable `question_id`, an `edition_id`, a `canonical_question_id` (dedupe link), section, original-language text and choices, modality flags, and provenance (URL, artifact SHA-256, page, pipeline git SHA).
+- `translations` and `answer_keys` are the only stores for English text and official keys. Each row links to a `question_id` and records its own provenance. A translation row carries `translation_source` (official or MT) and, for MT, model, revision, and prompt hash. A key row carries the official artifact SHA-256 and page. Each is written by one pipeline stage only, and no stage writes those fields anywhere else.
+- `questions_flat` is a view that joins `questions` to its one current `answer_keys` row and its preferred `translations` row. The preferred translation is official over MT, then latest over earlier. The `questions.json` export reads this view, so nothing is stored twice and consumers cannot see conflicting values.
 - Both datasets are delivered with a data dictionary and a dataset card: coverage per cell, known gaps, and contamination notes.
 
 **Rules:**
