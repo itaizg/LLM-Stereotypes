@@ -19,3 +19,14 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+      # FR-025/FR-026: fails if a tracked file outside the sample allowlist
+      # holds corpus question text (checked by fingerprint, research R13). It
+      # needs only the core install (stdlib + PyYAML), so it runs in the lint
+      # job without the pipeline extra's heavier dependencies resolving first.
+      - id: corpus-guard
+        name: corpus guard
+        entry: uv run --locked python -m pipeline.corpus
+        language: system
+        pass_filenames: false
+        always_run: true
