@@ -1,0 +1,89 @@
+# The exam catalog: which exams are in scope and which editions exist (FR-001..FR-006).
+# Format: specs/001-exam-data-aggregation/contracts/manifests.md.
+#
+# STATUS: the exam registry below is a skeleton. `pipeline catalog` exits 3 until the
+# maintainer has (1) filled in each exam's domains, seeds, and keys_evidence from the
+# official body's own site, and (2) authored an edition with evidence for every one of
+# the 66 exam-year cells. That refusal is the intended FR-003 gate, not a bug.
+#
+# Nothing here is guessed. A domain is an allowlist entry (FR-008): a wrong one lets the
+# fetcher talk to the wrong site, and a missing one just blocks fetching. So domains stay
+# empty until the maintainer confirms them. The same goes for keys_evidence (FR-006: an
+# exam is in scope only if its official body publishes answer keys) and for editions
+# (evidence must cite a source the maintainer has approved).
+#
+# The `parse` blocks are provisional placeholders so the file loads. Each exam's real
+# item and choice markers come from its actual paper layout (research R8) and are set
+# when extraction first runs on that exam.
+version: 1
+
+translation:
+  model: claude-sonnet-5-5
+  base_url: https://api.anthropic.com/v1/
+
+defaults:
+  rate_limit_seconds: 5
+
+exams:
+  sat:
+    name: SAT
+    body: College Board
+    language: en
+    publishes_keys: true # TODO: add keys_evidence from an approved official source
+    domains: [] # TODO: official domains, confirmed from the body's own site
+    seeds: [] # TODO: official past-paper index pages / sitemaps
+    parse: &provisional_parse
+      item_marker: '^(\d+)\.'
+      choice_markers: [A, B, C, D]
+      columns: 1
+      key_table: '^(\d+)\s+([A-D])$'
+
+  psychometric:
+    name: Psychometric Entrance Test
+    body: National Institute for Testing and Evaluation (NITE)
+    language: he
+    publishes_keys: true # TODO: add keys_evidence
+    domains: [] # TODO
+    seeds: [] # TODO
+    parse: *provisional_parse
+
+  csat:
+    name: College Scholastic Ability Test (CSAT)
+    body: Korea Institute for Curriculum and Evaluation (KICE)
+    language: ko
+    publishes_keys: true # TODO: add keys_evidence
+    domains: [] # TODO
+    seeds: [] # TODO
+    parse: *provisional_parse
+
+  gaokao:
+    name: National College Entrance Examination (Gaokao)
+    body: Ministry of Education of the People's Republic of China
+    language: zh-Hans
+    publishes_keys: true # TODO: confirm an official body publishes keys, with evidence
+    domains: [] # TODO
+    seeds: [] # TODO
+    parse: *provisional_parse
+
+  common_test:
+    name: Common Test for University Admissions (successor to the National Center Test)
+    body: National Center for University Entrance Examinations
+    language: ja
+    publishes_keys: true # TODO: add keys_evidence
+    domains: [] # TODO
+    seeds: [] # TODO
+    parse: *provisional_parse
+
+  enem:
+    name: Exame Nacional do Ensino Médio (ENEM)
+    body: INEP
+    language: pt-BR
+    publishes_keys: true # TODO: add keys_evidence
+    domains: [] # TODO
+    seeds: [] # TODO
+    parse: *provisional_parse
+
+# One entry per edition (exam x year x sitting/form/paper), 66 cells in all.
+# Each needs a status (ingested | not_released | blocked) and evidence; see the
+# contract for the fields. Authored by the maintainer as sources are approved.
+editions: []

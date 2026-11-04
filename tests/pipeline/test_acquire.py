@@ -14,6 +14,7 @@ from psycopg import sql
 
 from pipeline.acquire import review, run_catalog
 from pipeline.manifests import (
+    EXAM_IDS,
     CatalogError,
     LedgerError,
     append_event,
@@ -577,3 +578,23 @@ class TestCommittedLedger:
         old = shown.stdout if shown.returncode == 0 else b""
         new = (REPO_ROOT / "pipeline" / "ledger.jsonl").read_bytes()
         assert ledger_is_prefix_extension(old, new)
+
+
+# --- the committed registry ----------------------------------------------------
+
+
+class TestCommittedCatalog:
+    def test_it_loads_and_names_exactly_the_six_exams(self) -> None:
+        catalog = load_catalog(REPO_ROOT / "pipeline" / "catalog.yaml")
+        assert sorted(catalog.exams) == sorted(EXAM_IDS)
+        assert catalog.translation.model
+
+    def test_it_is_not_valid_yet_and_says_why(self) -> None:
+        # The skeleton must stay refused until the maintainer authors real evidence:
+        # a catalog that passed on invented data would be a fabricated result.
+        catalog = load_catalog(REPO_ROOT / "pipeline" / "catalog.yaml")
+        found = validate_catalog(
+            catalog, replay_ledger(read_ledger(REPO_ROOT / "pipeline" / "ledger.jsonl"))
+        )
+        assert any("has no edition" in line for line in found)
+        assert any("keys_evidence" in line for line in found)

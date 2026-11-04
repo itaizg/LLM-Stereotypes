@@ -8,6 +8,7 @@ import os
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
@@ -36,6 +37,9 @@ from pipeline.store import (
     redact,
     write_lock,
 )
+
+if TYPE_CHECKING:
+    from conftest import DatasetBuilder
 
 
 def sha(data: bytes) -> str:
@@ -499,3 +503,142 @@ class TestCli:
         assert cli.main(["catalog"]) == cli.EXIT_ERROR
         err = capsys.readouterr().err
         assert "s3cretpw" not in err and dsn not in err
+
+
+# --- the acquisition commands through the CLI --------------------------------
+
+SAT_EDITION = "sat-2020-main"
+
+
+@pytest.fixture
+def cli_env(
+    monkeypatch: pytest.MonkeyPatch, schema_dsn: str, tmp_path: Path
+) -> psycopg.Connection:
+    """Point the CLI at the per-test schema and a throwaway blob root."""
+    monkeypatch.setenv("PIPELINE_DSN", schema_dsn)
+    monkeypatch.setenv("PIPELINE_BLOB_ROOT", str(tmp_path / "blobs"))
+    return psycopg.connect(schema_dsn, autocommit=True)
+
+
+def run_cli(dataset: DatasetBuilder, *argv: str) -> int:
+    dataset.save()
+    return cli.main(
+        [
+            argv[0],
+            "--catalog",
+            str(dataset.catalog_path),
+            "--ledger",
+            str(dataset.ledger_path),
+            *argv[1:],
+        ]
+    )
+
+
+class TestAcquisitionCli:
+    def test_catalog_loads_a_valid_catalog(
+        self,
+        cli_env: psycopg.Connection,
+        dataset: DatasetBuilder,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        assert run_cli(dataset, "catalog") == cli.EXIT_OK
+        assert "catalog: editions=66 inserted=" in capsys.readouterr().out
+        row = cli_env.execute("SELECT count(*) FROM exam_editions").fetchone()
+        assert row == (66,)
+
+    def test_catalog_refuses_an_invalid_catalog_and_writes_nothing(
+        self,
+        cli_env: psycopg.Connection,
+        dataset: DatasetBuilder,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        dataset.catalog["editions"] = [
+            e for e in dataset.catalog["editions"] if e["edition_id"] != SAT_EDITION
+        ]
+        assert run_cli(dataset, "catalog") == cli.EXIT_INTEGRITY
+        assert "sat/2020" in capsys.readouterr().err
+        assert cli_env.execute("SELECT count(*) FROM exam_editions").fetchone() == (0,)
+
+    def test_a_second_writer_exits_4_and_writes_nothing(
+        self,
+        cli_env: psycopg.Connection,
+        schema_dsn: str,
+        dataset: DatasetBuilder,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        with psycopg.connect(schema_dsn, autocommit=True) as holder, write_lock(holder):
+            assert run_cli(dataset, "catalog") == cli.EXIT_LOCKED
+        assert "another pipeline command is running" in capsys.readouterr().err
+        assert cli_env.execute("SELECT count(*) FROM exam_editions").fetchone() == (0,)
+
+    def test_a_missing_dsn_is_a_usage_error(
+        self, monkeypatch: pytest.MonkeyPatch, dataset: DatasetBuilder
+    ) -> None:
+        monkeypatch.delenv("PIPELINE_DSN", raising=False)
+        assert run_cli(dataset, "catalog") == cli.EXIT_USAGE
+
+    def test_review_shows_the_candidate_then_records_the_decision(
+        self,
+        cli_env: psycopg.Connection,
+        dataset: DatasetBuilder,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        source = dataset.add_source(
+            "https://sat.exams.test/c.pdf", SAT_EDITION, "paper", approve=False
+        )
+        args = (
+            "review",
+            source,
+            "--approve",
+            "--edition",
+            SAT_EDITION,
+            "--role",
+            "key",
+        )
+        assert run_cli(dataset, *args) == cli.EXIT_OK
+        first = capsys.readouterr().out
+        assert "https://sat.exams.test/c.pdf" in first and "review: recorded" in first
+        assert run_cli(dataset, *args) == cli.EXIT_OK
+        assert "review: unchanged" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            ["--approve", "--edition", SAT_EDITION],  # no role
+            ["--approve", "--role", "paper"],  # no edition
+            ["--reject"],  # no reason
+        ],
+    )
+    def test_review_with_bad_arguments_is_a_usage_error(
+        self, cli_env: psycopg.Connection, dataset: DatasetBuilder, extra: list[str]
+    ) -> None:
+        source = dataset.add_source(
+            "https://sat.exams.test/c.pdf", SAT_EDITION, "paper", approve=False
+        )
+        assert run_cli(dataset, "review", source, *extra) == cli.EXIT_USAGE
+
+    def test_review_of_an_unknown_candidate_is_a_usage_error(
+        self, cli_env: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        assert run_cli(dataset, "review", "src_nope", "--reject", "--reason", "x") == (
+            cli.EXIT_USAGE
+        )
+
+    def test_discover_add_url_needs_an_edition_and_is_idempotent(
+        self,
+        cli_env: psycopg.Connection,
+        dataset: DatasetBuilder,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        url = "https://sat.exams.test/by-hand.pdf"
+        assert run_cli(dataset, "discover", "--add-url", url) == cli.EXIT_USAGE
+        args = ("discover", "--add-url", url, "--edition", SAT_EDITION)
+        assert run_cli(dataset, *args) == cli.EXIT_OK
+        assert "discover: recorded" in capsys.readouterr().out
+        assert run_cli(dataset, *args) == cli.EXIT_OK
+        assert "already known" in capsys.readouterr().out
+
+    def test_fetch_of_an_unknown_candidate_is_a_usage_error(
+        self, cli_env: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        assert run_cli(dataset, "fetch", "src_nope") == cli.EXIT_USAGE

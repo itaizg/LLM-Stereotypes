@@ -13,6 +13,7 @@ refusal is recorded in the ledger, not raised.
 from __future__ import annotations
 
 import asyncio
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -51,6 +52,7 @@ __all__ = [
     "DiscoverSummary",
     "FetchSummary",
     "LedgerError",
+    "SystemClock",
     "add_manual_url",
     "discover",
     "fetch",
@@ -226,6 +228,16 @@ class Clock(Protocol):
     def now(self) -> float: ...
 
     async def sleep(self, seconds: float) -> None: ...
+
+
+class SystemClock:
+    """The real clock, used by the CLI; tests inject a virtual one instead."""
+
+    def now(self) -> float:
+        return time.monotonic()
+
+    async def sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
 
 
 @dataclass(frozen=True)
