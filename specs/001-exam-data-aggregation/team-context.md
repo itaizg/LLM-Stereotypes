@@ -1,7 +1,8 @@
 # Team Context — 001-exam-data-aggregation
 
 Discovered by `/team-discover` (before_specify hook) on 2026-11-04 from
-`/Users/itaizemah-goren/team-ai-directives`.
+`/Users/itaizemah-goren/team-ai-directives`; re-run by the before_plan hook on 2026-11-04
+(CDR index last updated 2026-08-12, 34 entries).
 
 Feature context: domain = data acquisition / dataset curation (exam questions);
 technology = Python 3.13, Postgres, columnar snapshots, object storage, distributed
@@ -42,4 +43,6 @@ rule is stricter than the generic "mock external dependencies" guidance).
 
 ### Changes from Previous Discovery
 
-- First discovery for this feature; no previous file.
+- before_specify (2026-11-04): first discovery for this feature; no previous file.
+- before_plan (2026-11-04): no changes. Same 10 matches, same relevance levels; the CDR
+  index has not changed since the previous discovery.

@@ -5,6 +5,15 @@ Highest priority first.
 
 ## High priority
 
+- [ ] **Score questions with more than four choices.** `harness/scoring.py` and
+  `harness/backends/mock.py` recognise only the letters A–D. Exported exam banks (spec 001,
+  FR-012) include single-answer questions with any number of choices: ENEM and CSAT have
+  five, and some Common Test items have more. Until this is fixed, a question whose gold
+  answer is E or later is scored as an extraction failure, so accuracy on those questions is
+  under-reported. The export prints how many questions this affects. To fix: derive the
+  valid letters from each question's own choice count, both in answer extraction and in
+  MockBackend's wrong-answer draw. Add a regression test showing that existing four-choice
+  suites score identically. Do not change the export, which already writes the letters.
 - [ ] **Export multi-answer questions to suites.** The exam dataset stores answer keys as
   sets of choice labels (spec 001, FR-012). Multi-answer questions, such as Gaokao
   "select all that apply" items, are stored but not exported, because harness scoring

@@ -507,3 +507,18 @@ store, and compare per-question content hashes and snapshot row counts with the 
 - Q: Is a suite question bank built from a fixed snapshot or from the live store? → A: Only
   from a named snapshot. The bank records the snapshot version, and re-exporting from the
   same snapshot gives a byte-identical file (FR-023).
+
+### Session 2026-11-04 (planning)
+
+- Q: Harness scoring recognises only the letters A–D. Should questions with five or more
+  choices still be exported? → A: Yes. All single-answer questions are exported whatever
+  their choice count (FR-012 unchanged), with choices relabelled A, B, C, … in order. Making
+  harness scoring choice-count-aware is a high-priority item in TODO.md. Until it lands, the
+  export reports how many questions have an answer beyond D, and the dataset card notes it.
+- Q: The Google Programmable Search JSON API is closed to new customers and is discontinued
+  on 2027-01-01. How are candidate URLs discovered? → A: By crawling the official
+  past-paper index pages and sitemaps of the allowlisted domains, plus URLs the maintainer
+  adds by hand. Both methods still require approval (FR-007). This replaces the brief's
+  search-API constraint.
+- Q: PySpark or a lighter batch engine? → A: pyarrow plus a standard-library process pool.
+  At 10⁴–10⁵ questions the only parallel work is per-artifact extraction (research.md R2).
