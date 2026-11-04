@@ -16,6 +16,15 @@ from botocore.stub import Stubber
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
+from pipeline import __main__ as cli
+from pipeline.acquire import (
+    CatalogError,
+    LedgerError,
+    append_event,
+    ledger_is_prefix_extension,
+    read_ledger,
+    source_id_for,
+)
 from pipeline.blobs import (
     BlobCorruptionError,
     BlobExistsError,
@@ -430,3 +439,148 @@ class TestStore:
         assert summary.line() == (
             "extract: editions=12 inserted=840 updated=0 deleted=0 failures=+3/-0"
         )
+
+
+# --- the ledger --------------------------------------------------------------
+
+
+def _write(path: Path, *lines: str) -> Path:
+    path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    return path
+
+
+class TestLedger:
+    def test_append_assigns_increasing_seq_and_uses_canonical_json(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = tmp_path / "ledger.jsonl"
+        first = append_event(
+            ledger,
+            "candidate",
+            {"url": "u", "source_id": "src_1"},
+            at="2026-01-01T00:00:00Z",
+        )
+        second = append_event(
+            ledger,
+            "review",
+            {"source_id": "src_1", "decision": "approved"},
+            at="2026-01-01T00:00:01Z",
+        )
+        assert (first.seq, second.seq) == (1, 2)
+        lines = ledger.read_text(encoding="utf-8").splitlines()
+        assert lines[0] == (
+            '{"at":"2026-01-01T00:00:00Z","kind":"candidate",'
+            '"seq":1,"source_id":"src_1","url":"u"}'
+        )
+        assert [e.seq for e in read_ledger(ledger)] == [1, 2]
+
+    def test_a_missing_ledger_is_empty(self, tmp_path: Path) -> None:
+        assert read_ledger(tmp_path / "absent.jsonl") == []
+
+    @pytest.mark.parametrize(
+        "lines",
+        [
+            ['{"seq":1,"kind":"fetch","at":"t"}', '{"seq":1,"kind":"fetch","at":"t"}'],
+            ['{"seq":2,"kind":"fetch","at":"t"}', '{"seq":1,"kind":"fetch","at":"t"}'],
+            ['{"seq":"1","kind":"fetch","at":"t"}'],
+            ['{"seq":1,"kind":"mystery","at":"t"}'],
+            ["not json"],
+            ["[1, 2]"],
+        ],
+    )
+    def test_malformed_or_non_increasing_ledgers_are_refused(
+        self, tmp_path: Path, lines: list[str]
+    ) -> None:
+        with pytest.raises(LedgerError):
+            read_ledger(_write(tmp_path / "ledger.jsonl", *lines))
+
+    def test_unknown_kinds_cannot_be_appended(self, tmp_path: Path) -> None:
+        with pytest.raises(LedgerError):
+            append_event(tmp_path / "l.jsonl", "mystery", {}, at="t")
+
+    @pytest.mark.parametrize(
+        ("old", "new", "expected"),
+        [
+            (b"", b"anything\n", True),
+            (b"a\nb\n", b"a\nb\nc\n", True),
+            (b"a\nb\n", b"a\nb\n", True),
+            (b"a\nb\n", b"a\nX\nc\n", False),
+            (b"a\nb\n", b"a\n", False),
+            (b"a\nb", b"a\nbc\n", False),  # an unterminated last line was rewritten
+        ],
+    )
+    def test_prefix_extension(self, old: bytes, new: bytes, expected: bool) -> None:
+        assert ledger_is_prefix_extension(old, new) is expected
+
+    def test_source_ids_are_stable_hashes_of_the_url(self) -> None:
+        one = source_id_for("https://sat.exams.test/a.pdf")
+        assert one == source_id_for("https://sat.exams.test/a.pdf")
+        assert one != source_id_for("https://sat.exams.test/b.pdf")
+        assert one.startswith("src_") and len(one) == 4 + 16
+
+
+# --- the command line --------------------------------------------------------
+
+
+class TestCli:
+    def test_unknown_command_is_a_usage_error(self) -> None:
+        assert cli.main(["mystery"]) == cli.EXIT_USAGE
+
+    def test_help_exits_zero(self) -> None:
+        assert cli.main(["--help"]) == cli.EXIT_OK
+
+    def test_export_requires_a_snapshot(self) -> None:
+        assert cli.main(["export", "--exam", "enem", "--eligible"]) == cli.EXIT_USAGE
+
+    def test_flags_work_after_the_command_name(self) -> None:
+        args = cli.build_parser().parse_args(
+            ["fetch", "--exam", "enem", "--ledger", "x.jsonl"]
+        )
+        assert (args.exam, args.ledger) == ("enem", "x.jsonl")
+
+    def test_unimplemented_commands_are_usage_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cli, "HANDLERS", {})
+        assert cli.main(["rebuild", "--schema", "s"]) == cli.EXIT_USAGE
+
+    @pytest.mark.parametrize(
+        ("error", "code"),
+        [
+            (CatalogError("bad catalog"), cli.EXIT_INTEGRITY),
+            (LedgerError("bad ledger"), cli.EXIT_INTEGRITY),
+            (LockHeld("another pipeline command is running"), cli.EXIT_LOCKED),
+            (ConnectionFailed("cannot connect"), cli.EXIT_ERROR),
+            (RuntimeError("boom"), cli.EXIT_ERROR),
+            (cli.UsageError("PIPELINE_DSN is not set"), cli.EXIT_USAGE),
+        ],
+    )
+    def test_errors_map_to_the_documented_exit_codes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        error: Exception,
+        code: int,
+    ) -> None:
+        def raiser(args: object) -> int:
+            raise error
+
+        monkeypatch.setattr(cli, "HANDLERS", {"catalog": raiser})
+        assert cli.main(["catalog"]) == code
+        assert str(error) in capsys.readouterr().err
+
+    def test_unexpected_errors_never_print_the_dsn(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        dsn = "postgresql://someone:s3cretpw@db.test/x"
+        monkeypatch.setenv("PIPELINE_DSN", dsn)
+
+        def raiser(args: object) -> int:
+            raise RuntimeError(f"failed against {dsn}")
+
+        monkeypatch.setattr(cli, "HANDLERS", {"catalog": raiser})
+        assert cli.main(["catalog"]) == cli.EXIT_ERROR
+        err = capsys.readouterr().err
+        assert "s3cretpw" not in err and dsn not in err
