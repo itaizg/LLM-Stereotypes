@@ -84,8 +84,11 @@ Clarifications, planning session).
 
 ## R5. Raw file and snapshot storage
 
-- **Decision**: A `BlobStore` protocol with `put(data) -> sha256`, `get(sha256)`,
-  `exists(sha256)`, and `put_named(path, data)` for snapshots. `LocalBlobStore` uses a
+- **Decision**: A `BlobStore` protocol with `put(data) -> sha256`, `get(sha256)`, and
+  `exists(sha256)` for raw files, and `put_named(path, data)`, `get_named(path)`, and
+  `exists_named(path)` for named objects: snapshot files (which `export` reads and version
+  selection checks), MT responses (R10), and review CSVs (R14). This list is the protocol's
+  one definition. `LocalBlobStore` uses a
   directory and `S3BlobStore` uses boto3. The layout is the same for both:
   `raw/<sha256>` and `snapshots/<version>/…`. `put` never overwrites: an existing key is a
   no-op after a hash check. On S3 that is `If-None-Match: *`, and an S3 PUT is atomic.
@@ -143,6 +146,12 @@ Clarifications, planning session).
     stem, choices, modality flags, stimulus_id, artifact_sha256, page})`. It deliberately **excludes**
     `pipeline_version` (the git SHA), so an unrelated commit does not change the hashes and
     rebuilds reproduce them (FR-020). The git SHA is still stored as provenance.
+  - `pipeline_version` is the git SHA of `HEAD`, with a `-dirty` suffix when pipeline code
+    (`pipeline/**/*.py` or `pipeline/schema.sql`) has uncommitted changes, so provenance
+    never claims code that was not committed. Changes to data files (`catalog.yaml`,
+    `ledger.jsonl`, `fingerprints.txt`) do not count, because stages write them during
+    normal work. `snapshot` refuses a dirty SHA (R11). The git state comes from one small
+    function that tests replace.
 - **Rationale**: Every ID can be derived from catalog data and extracted content, so rebuilds
   reproduce them. Canonical JSON (`sort_keys`, `ensure_ascii=False`, compact separators)
   removes serializer ambiguity.
@@ -155,7 +164,11 @@ Clarifications, planning session).
   config-defined column crops handle two-column layouts. Pages with no text layer go to an
   `OcrEngine` protocol, implemented with `pytesseract` using language packs `kor`,
   `chi_sim`, `jpn`, `heb`, `por`, and `eng`. A page whose mean word confidence is below
-  one threshold constant becomes an `ocr_low_confidence` failure. Item and choice
+  one threshold constant, `OCR_MIN_CONFIDENCE`, becomes an `ocr_low_confidence` failure.
+  It starts at a provisional 60 (Tesseract's 0–100 scale), marked provisional in its
+  docstring, because extraction must run before the first hand-check can measure anything.
+  After the first hand-check it is set from the observed results in a reviewed commit, and
+  the affected exams are re-extracted. Item and choice
   splitting uses per-exam regex patterns from `catalog.yaml`: item markers such as
   `^\d+\.`, `QUESTÃO \d+`, or `問\d+`, and choice markers such as `①–⑤`, `A–E`, or
   `(1)–(4)`. Pages that hold figures (image objects in the item's area) or tables (ruling
@@ -187,26 +200,33 @@ Clarifications, planning session).
 ## R10. English text and machine translation
 
 - **Decision**:
-  - English-original questions (SAT, and NITE's English edition when it is catalogued as an
-    edition in its own right) use their original text as English in the view. No
-    translation row is written, because the text would be stored twice (DRY, FR-016).
-    This is an interpretation of FR-014: "English text MUST be stored only as translation
-    records" is read as applying to English that is not the original language, since
-    FR-010 already puts an English-original edition's text in the question record. The
-    view labels it `translation_source = original`, so queries treat all English
-    uniformly. If the author prefers the literal reading, the alternative is one
-    `translation_source = original` row per question that copies the text, with no other
-    design change.
-  - Official translations: a catalog edition with `translation_of: <edition_id>` and
-    `language: en` is paired item by item. Matching item counts are not enough, because an
-    English edition can reorder items or sections. A pair is written only when (a) both
-    editions have exactly the same set of `(section, item)` keys, and (b) each pair agrees
-    in structure: the same number of choices, the same modality flags, and the same
-    stimulus grouping. Any item that fails (b) gets a `translation_pairing_mismatch`
-    failure and no official row. If (a) fails, the whole edition gets one failure and
-    nothing is paired. A catalog edition may give an explicit `item_map` when the official
-    English numbering differs. The translation review sample (R14) then checks meaning,
-    which structure cannot.
+  - English-original questions (SAT, and an English paper catalogued as its own edition
+    because its questions differ from the original) use their original text as English in
+    the view. No translation row is written, because the text would be stored twice (DRY,
+    FR-016). FR-014 covers only English that is not the question's original language
+    (spec Clarifications, analysis session), since FR-010 already puts an English-original
+    edition's text in the question record. The view labels it
+    `translation_source = original`, so queries treat all English uniformly.
+  - Official translations are **artifacts, not editions** (data-model `artifacts`). The
+    official English version of a paper is attached to the original edition with role
+    `english`. `extract` never reads `english` artifacts, so official English is never
+    stored in `questions`, never exported as a second copy, and never counted as an extra
+    edition. `translate` reads each `english` artifact with the same `read_pages` and
+    `parse_pages` functions as `extract` (in memory, using the exam's `parse_english`
+    block, or `parse` when there is none), then pairs the parsed items with the original
+    edition's questions and stimuli. Matching item counts are not enough, because an
+    English version can reorder items or sections. A pair is written only when (a) both
+    sides have exactly the same set of `(section, item)` keys after applying the edition's
+    optional `english_item_map`, and (b) each pair agrees in structure: the same number of
+    choices, the same modality flags, and the same stimulus grouping. Any item that fails
+    (b) gets a `translation_pairing_mismatch` failure and no official row. If (a) fails,
+    the whole edition gets one failure and nothing is paired. The paired English text is
+    then stored once, as `official` rows in `translations` citing the `english` artifact's
+    hash and page. The translation review sample (R14) checks meaning, which structure
+    cannot.
+  - Official versions in languages other than English (e.g. the Psychometric exam's
+    Arabic or Russian versions) are not catalogued in this feature. The dataset card lists
+    them as a known gap.
   - MT: a `Translator` protocol. The production implementation calls an OpenAI-compatible
     chat endpoint through the `openai` client at temperature 0. The default is
     Anthropic's OpenAI-compatible endpoint with the model set in `catalog.yaml`
@@ -233,24 +253,35 @@ Clarifications, planning session).
 
 - **Decision**: `pipeline snapshot` runs under the pipeline write lock (R16), so two
   snapshots, or a snapshot and a writing stage, never overlap. It works in this order:
-  1. It runs the `catalog` stage first, so `sources`, `artifacts`, and `exam_checks`
-     reflect the ledger file it is about to hash. A `verify record` made just before a
-     snapshot is therefore never left out.
-  2. It picks the next version, `snap-NNNN`, one above the highest version with a
-     published manifest.
-  3. It opens one `REPEATABLE READ, READ ONLY` transaction and writes every table except
+  1. It refuses (exit 3) when `pipeline_version` is dirty (R7), so every published
+     snapshot names committed code. It then runs the `catalog` stage, so `sources`,
+     `artifacts`, and `exam_checks` reflect the ledger file it is about to hash. A
+     `verify record` made just before a snapshot is therefore never left out.
+  2. It opens one `REPEATABLE READ, READ ONLY` transaction. Inside it, it counts the rows
+     of the `integrity_violations` view (data-model) and refuses (exit 3) if there are any,
+     printing counts per check. This is the gate that checks SC-002 and SC-004 on the real
+     store every time a snapshot is made.
+  3. It computes `content_sha256`: the SHA-256 of the canonical JSON of the catalog and
+     ledger SHA-256s, the SHA-256 of `schema.sql`, and one digest per table, each over that
+     table's rows in primary-key order. If it equals the latest published manifest's
+     `content_sha256`, it prints `snapshot: unchanged (snap-NNNN)`, writes nothing, and
+     exits 0. Re-running `snapshot` on unchanged inputs therefore adds nothing (FR-019).
+     The git SHA is not part of it, so a commit that changes no data does not make a new
+     version.
+  4. It picks the next version, `snap-NNNN`, one above the highest version with a
+     published manifest, and, in the same transaction, writes every table except
      the `snapshots` registry (including `exam_checks`), plus the materialized
      `questions_flat` and the derived exam verification status, to
      `snapshots/snap-NNNN/*.parquet`. Per-table row counts are taken inside the same
      transaction.
-  4. It reads the Parquet files back and fails if any count differs (FR-021, SC-006).
-  5. It generates `data_dictionary.md` from the `COMMENT ON` text in `schema.sql`, and
+  5. It reads the Parquet files back and fails if any count differs (FR-021, SC-006).
+  6. It generates `data_dictionary.md` from the `COMMENT ON` text in `schema.sql`, and
      `dataset_card.md` from coverage queries plus the per-exam notes in `catalog.yaml`.
-  6. It writes `manifest.json` **last**, with no-overwrite semantics. A version exists only
+  7. It writes `manifest.json` **last**, with no-overwrite semantics. A version exists only
      once its manifest exists. The manifest holds the version, git SHA, ledger SHA-256,
-     catalog SHA-256, row counts, and the hash of every file.
-  7. It then inserts the `snapshots` row and refreshes `pipeline/fingerprints.txt`.
-  If a run fails before step 6, the version has no manifest, so a retry reuses the same
+     catalog SHA-256, `content_sha256`, row counts, and the hash of every file.
+  8. It then inserts the `snapshots` row and refreshes `pipeline/fingerprints.txt`.
+  If a run fails before step 7, the version has no manifest, so a retry reuses the same
   version number and overwrites its partial files. Published versions are never touched.
 - **Rationale**: Taking counts inside the snapshot transaction makes "matches the live store
   for that version" exact without a versioned store. Generating the dictionary from schema
@@ -303,8 +334,10 @@ Clarifications, planning session).
 
 ## R14. Hand-check and translation review (FR-024, SC-003, SC-004)
 
-- **Decision**: `pipeline verify draw --exam X --seed S` samples 50 current questions with
-  `random.Random(S)` over the sorted `question_id`s. It writes a private CSV outside git
+- **Decision**: `pipeline verify draw --exam X --seed S` samples `min(50, N)` of the exam's
+  N current questions with `random.Random(S)` over the sorted `question_id`s, so an exam
+  with fewer than 50 questions is checked in full. Translation review likewise draws
+  `min(30, N)` per language. It writes a private CSV outside git
   (the default is `<blob root>/review/`) with source page references for the maintainer.
   `pipeline verify record <csv>` appends a `handcheck` ledger event holding the exam, seed,
   sampled IDs with their content hashes and current key labels, and per-item pass/fail for
@@ -323,8 +356,8 @@ Clarifications, planning session).
   seed is new for that exam; (b) every question that failed in the last failing event now
   has a different content hash or key (or is retired), which is evidence that it was
   re-extracted; and (c) the event includes those previously failed questions, re-checked,
-  in addition to the 50-question random sample. `verify draw` adds them automatically
-  after a failure. Translation review samples 30 per language in the same way and records
+  in addition to the random sample. `verify draw` adds them automatically
+  after a failure. Translation review samples per language in the same way and records
   a 0–3 adequacy score per item: 0 wrong meaning, 1 major error, 2 minor error,
   3 accurate. The mean and distribution are published as observed, with no threshold
   (SC-004).
@@ -341,6 +374,14 @@ Clarifications, planning session).
   `postgres:17` service with `uv sync --locked --extra dev --extra pipeline` and
   `pytest tests/pipeline`, with `PIPELINE_TEST_DSN` pointing at the service. A test checks
   that no module under `harness/` imports `pipeline` (FR-030).
+  The `pipeline` job checks out with `fetch-depth: 0`, so the ledger test
+  (contracts/manifests.md) can compare the working `pipeline/ledger.jsonl` with its version
+  at `git merge-base HEAD origin/main`. Comparing with `HEAD` would prove nothing in CI,
+  where `HEAD` is the working copy. Locally the test skips when `origin/main` is missing;
+  with `CI=true` that is a failure, as for the test DSN (R4).
+  A static test checks single-writer ownership (FR-016): only `pipeline/keys.py` contains
+  SQL that writes `answer_keys`, and only `pipeline/translate.py` SQL that writes
+  `translations`.
 - **Rationale**: The core install and the harness CI jobs stay byte-for-byte the same in
   what they install (FR-030). Tesseract is not installed in CI because OCR is faked in tests.
 

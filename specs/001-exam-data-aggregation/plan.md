@@ -92,9 +92,9 @@ Checked against constitution v1.0.0 and team directives
 |------|-----------|-------------|-------------------------|
 | I. Typed code, checked by ty | PASS | PASS | `pipeline/` is fully annotated. Parsed YAML, JSONL, and HTTP or DB rows are narrowed to frozen dataclasses at the boundary (`Any` only there). The ty hook gains `--extra pipeline` so pipeline imports resolve. Amendment A1 adds `pipeline/` to Principle I's named paths. |
 | II. ruff only | PASS | PASS | No new linters. `pipeline/` and `tests/pipeline/` are inside the existing ruff config. |
-| III. Tests are the contract, GPU-free, offline | PASS | PASS | All tests are offline (see Testing). Postgres runs locally, which FR-027 allows. Determinism comes from seeded samples, an injected clock for rate limiting, and sorted processing order. The rebuild-equivalence and export byte-identity tests check known answers, not just that the code runs. |
+| III. Tests are the contract, GPU-free, offline | PASS | PASS | All tests are offline (see Testing). Postgres runs locally, which FR-027 allows; the only connection is loopback to that local server, and amendment A1 states in Principle III that this is allowed, so the gate does not rest on interpretation. A1 also extends Principle III's test rule to `pipeline/`. Determinism comes from seeded samples, an injected clock for rate limiting, and sorted processing order. The rebuild-equivalence and export byte-identity tests check known answers, not just that the code runs. |
 | IV. KISS / YAGNI / DRY | PASS | PASS | No ORM, workflow engine, or Spark. Plain functions plus dataclasses. One authority per fact: exam registry and editions in `catalog.yaml`; decisions in `ledger.jsonl`; schema and data dictionary in `schema.sql`, whose column comments generate the dictionary; failure reason codes in one `StrEnum`, with a test checking the SQL `CHECK` list matches; text normalization in `corpus.py`, where the corpus guard's looser `fingerprint_text` is defined as the FR-010 `canonical_text` plus case-folding and whitespace removal, so the rules are not duplicated; concurrency in one write lock; the sample cap is one constant. Non-eligible export modes and Gaokao provincial papers are left out until there is a real use (YAGNI). |
-| V. Structure / SOLID / LoD / CoC | PASS | PASS | One module per stage, so each has one reason to change. Keys are written only by `keys.py` and translations only by `translate.py` (FR-016). `BlobStore`, `Translator`, and `OcrEngine` are small protocols with substitutable implementations. `harness/` never imports `pipeline/`; a test checks this (FR-030). The harness loads exported banks with no code change (Open/Closed). Conventions: blobs live at `<root>/raw/<sha256>`, snapshots at `<root>/snapshots/<version>/`, and the CLI follows the stage names. |
+| V. Structure / SOLID / LoD / CoC | PASS | PASS | One module per concern, so each has one reason to change: acquisition from official sources (`acquire.py`: catalog, discover, review, fetch, which all change when acquisition rules change), extraction, keys, translation, verification, and delivery (`publish.py`: snapshot and export, plus the dictionary and card a snapshot ships with). `rebuild` only calls the stages in order, so it lives in `__main__.py` with the rest of the dispatch, not in a stage module. If `acquire.py` approaches the 800-line limit, `fetch` moves to its own module as a justified file-count overrun. Keys are written only by `keys.py` and translations only by `translate.py` (FR-016), and a static test checks this. `BlobStore`, `Translator`, and `OcrEngine` are small protocols with substitutable implementations. `harness/` never imports `pipeline/`; a test checks this (FR-030). The harness loads exported banks with no code change (Open/Closed). Conventions: blobs live at `<root>/raw/<sha256>`, snapshots at `<root>/snapshots/<version>/`, and the CLI follows the stage names. |
 | Quality gates (pre-commit, CI) | PASS | PASS | A new CI job, `pipeline`, runs on a Postgres 17 service container with pinned actions and `contents: read`, with no secrets. The core `pytest` job ignores `tests/pipeline/`. The corpus guard runs as a pre-commit hook and therefore in CI. |
 | Project constraints: dependencies | **BLOCKED until A1 merges** | PASS (sequenced) | FR-032: the "heavyweight frameworks MUST NOT be added" clause is removed by amendment A1, which must land **before or with** the first pipeline dependency. None of the chosen packages is a named heavyweight framework, but the plan still sequences A1 first, as the spec requires. The core install stays GPU-free and unchanged. |
 | Project constraints: separation, integrity, secrets | PASS | PASS | `pipeline/` adds data only and runs no experiments. Secrets (`ANTHROPIC_API_KEY`, AWS credentials, `PIPELINE_DSN`) come only from environment variables and are never logged. The DSN is redacted in errors. |
@@ -107,9 +107,11 @@ Checked against constitution v1.0.0 and team directives
   frameworks (LangChain, MLflow, W&B) MUST NOT be added." Keep Python 3.13, `uv`,
   `uv.lock`, `uv sync --locked`, the optional `model` extra, and the GPU-free core. Add:
   "Dataset-pipeline packages stay in the optional `pipeline` extra." Principle I adds
-  `pipeline/` to its path list. Update the Sync Impact Report. The bump level is decided in
-  that PR: removing a constraint and expanding guidance suggests MINOR (1.1.0), since no
-  principle or gate is removed or redefined.
+  `pipeline/` to its path list. Principle III extends "Every behavior change in
+  `harness/`" to `harness/` and `pipeline/`, and adds: "Loopback connections to a locally
+  run database are permitted; anything beyond the machine is not." Update the Sync Impact
+  Report. The bump level is decided in that PR: removing a constraint and expanding
+  guidance suggests MINOR (1.1.0), since no principle or gate is removed or redefined.
 - CLAUDE.md: delete the "Do not add heavyweight dependencies" bullet, and reword
   differentiator #2 to: "The harness core is small enough to own end-to-end: no framework
   dependencies, readable in one sitting. The dataset pipeline is a separate, optional
@@ -138,11 +140,13 @@ specs/001-exam-data-aggregation/
 ```text
 pipeline/                      # NEW optional package; harness never imports it
 ├── __init__.py
-├── __main__.py                # CLI dispatch only (argparse → stage functions)
+├── __main__.py                # CLI dispatch (argparse → stage functions) and `rebuild`,
+│                              #   which only calls the stages in order
 ├── catalog.yaml               # human-authored: exams, domains, rate limits, parse
 │                              #   patterns, index pages, editions + evidence
 ├── ledger.jsonl               # machine-written, append-only decisions/events
-├── schema.sql                 # DDL + questions_flat view + COMMENTs (data dictionary)
+├── schema.sql                 # DDL + questions_flat and integrity_violations views
+│                              #   + COMMENTs (data dictionary)
 ├── store.py                   # Postgres: connect, apply schema, parameterized reconcile
 ├── blobs.py                   # BlobStore protocol; LocalBlobStore, S3BlobStore
 ├── acquire.py                 # stages: catalog, discover, review, fetch
@@ -178,8 +182,9 @@ by one generic parser (Convention over Configuration). A per-exam parser module 
 only when an exam's layout cannot be expressed as config. That would be the second real
 instance, and would be a justified overrun (YAGNI).
 
-**File count (FR-034)**: 17 new files in `pipeline/` (counting `samples/allowlist.yaml`
-and `fingerprints.txt`) plus 5 in `tests/pipeline/` is **22, over the target of 20 by 2**.
+**File count (FR-034)**: 16 new files in `pipeline/` (counting `catalog.yaml`,
+`ledger.jsonl`, `samples/allowlist.yaml`, and `fingerprints.txt`) plus 5 in
+`tests/pipeline/` is **21, over the target of 20 by 1**.
 Justification for the PR: (a) `tests/pipeline/` needs its own `conftest.py` so the core CI
 job can ignore the directory without importing pipeline-only dependencies; (b)
 `fingerprints.txt` and `samples/allowlist.yaml` are data files required by FR-025 and
@@ -227,5 +232,5 @@ would put two writers or two reasons to change in one module (FR-016, Principle 
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| 22 new files, against the target of 20 (FR-034 SHOULD) | Separate test directory with its own conftest; two data files required by FR-025 and FR-026 | Putting pipeline tests in `tests/` would make the core CI job import pipeline-only dependencies or skip modules. Merging more modules would break FR-016's single writer or Principle V's single responsibility. |
+| 21 new files, against the target of 20 (FR-034 SHOULD) | Separate test directory with its own conftest; two data files required by FR-025 and FR-026 | Putting pipeline tests in `tests/` would make the core CI job import pipeline-only dependencies or skip modules. Merging more modules would break FR-016's single writer or Principle V's single responsibility. |
 | Postgres needed in tests | FR-027 requires the real store engine to run locally. The `questions_flat` view and reconcile SQL are the logic under test. | SQLite in tests would test a different SQL dialect from production, so the view's behavior would go untested. |

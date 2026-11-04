@@ -31,6 +31,8 @@ exams:
       choice_markers: [A, B, C, D, E]
       columns: 2
       key_table: '^(\d+)\s+([A-E])$'
+    # parse_english: {…}             # optional; overrides `parse` keys for this exam's
+                                     #   official English versions (role `english`)
     card_notes: |                    # copied into the dataset card
       Contamination: ENEM papers are widely mirrored online and very likely in training data.
 editions:
@@ -65,10 +67,14 @@ editions:
     # …
 ```
 
-`translation_of: <edition_id>` marks an official English edition. It may add
-`item_map: {"<section>:<item>": "<section>:<item>"}` when its numbering differs from the
-original's. Without a map, items pair by identical `(section, item)` and must pass the
-structural check (research R10).
+An official English version of a paper is **not** an edition. It is approved with
+`review --role english --edition <original edition>` and attached to the original edition
+as an artifact (data-model `artifacts`), so it adds no edition and no cell coverage. The
+original edition may add `english_item_map: {"<section>:<item>": "<section>:<item>"}`
+when the English numbering differs. Without a map, items pair by identical
+`(section, item)` and must pass the structural check (research R10). An English paper
+whose questions differ from the original is a separate edition with `language: en`.
+Official versions in other languages are not catalogued (a known gap in the dataset card).
 
 Rules: the `catalog` stage validates everything in data-model.md, `exam_editions`, before
 writing. `not_released` needs a `statement`, or an `index_absence` item whose seed is
@@ -78,8 +84,8 @@ later is just another `editions` entry, with no schema change (FR-002).
 ## `pipeline/ledger.jsonl` (machine-written, append-only)
 
 One JSON object per line, in canonical JSON (sorted keys, compact). Lines are never edited
-or removed. A test checks that the file is a prefix-extension of its previous committed
-version. Every event has `seq`, `kind`, and `at` (UTC ISO-8601; for audit only, never part
+or removed. A test checks that the file is a prefix-extension of its version at
+`git merge-base HEAD origin/main` (research R15). Every event has `seq`, `kind`, and `at` (UTC ISO-8601; for audit only, never part
 of any hash or ID). `seq` is allocated, and the line appended and fsynced, while the
 pipeline write lock is held (research R16), so `seq` is strictly increasing with no ties.
 `catalog` fails on a duplicate or decreasing `seq`.
