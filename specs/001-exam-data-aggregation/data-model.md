@@ -22,18 +22,36 @@ Each table has exactly one writing stage:
 | `exam_editions` | `catalog` | reconcile with catalog.yaml |
 | `sources` | `catalog` (replays ledger) | reconcile with ledger |
 | `artifacts` | `catalog` (replays ledger) | reconcile with ledger |
-| `stimuli`, `questions` | `extract` | reconcile per edition |
+| `stimuli`, `questions` | `extract` | reconcile per edition; rows no longer produced are retired, not deleted |
 | `answer_keys` | `key` | append-only (insert if new) |
 | `translations` | `translate` | append-only (insert if new) |
 | `extraction_failures` | the stage named in the row's `stage` column; each stage reconciles only its own rows | reconcile per (edition, stage) |
-| `exam_checks` | `catalog` (replays ledger `handcheck` events) | reconcile with ledger |
+| `exam_checks` | `catalog` (replays ledger `handcheck` events; `snapshot` runs `catalog` first) | reconcile with ledger |
 | `snapshots` | `snapshot` | append-only |
 
 **Reconcile** means: compute the full set of rows this stage owns for one edition from its
-inputs, then insert missing rows, update rows whose `content_hash` changed, and delete
+inputs, then insert missing rows, update rows whose `content_hash` changed, and remove
 rows that are no longer produced. Unchanged inputs produce zero writes (FR-019). The
 `fetch` stage writes ledger events and blobs; `catalog` turns them into rows, so
 `artifacts` and `sources` have one writer.
+
+- **One transaction per edition.** Each stage reconciles one edition inside one database
+  transaction. A crash leaves that edition fully old or fully new, never half-reconciled,
+  and a snapshot (a `REPEATABLE READ` transaction) can see only committed editions.
+- **Retire, don't delete, questions and stimuli.** Append-only `answer_keys` and
+  `translations` reference them, so `extract` sets `retired = true` on a question or
+  stimulus it no longer produces. If a later run produces it again, `retired` goes back to
+  false. Retired rows keep their history, and the view excludes them. `extraction_failures`
+  rows have no dependants and are deleted normally.
+- **Changed content keeps its key rows, not its translations.** A key is tied to a printed
+  item number on the official key sheet, so it stays attached to `question_id`. The `key`
+  stage re-checks every current key against the question's current choice labels on each
+  run (`key_label_mismatch`). Translations carry `source_content_hash`, so a translation of
+  superseded content is never preferred.
+- **One writer at a time.** Every command that writes (to the ledger, blobs, or Postgres)
+  holds one pipeline-wide Postgres advisory lock for its whole run (research R16). That
+  serializes ledger sequence numbers, fetch rate limiting, MT calls, `verify record`, and
+  snapshot versions.
 
 ## Tables
 
@@ -41,7 +59,7 @@ rows that are no longer produced. Unchanged inputs produce zero writes (FR-019).
 
 | Column | Type | Rules |
 |--------|------|-------|
-| `edition_id` | text PK | `{exam}-{year}-{sitting}`; matches `^[a-z]+-20(1[5-9]\|2[0-5])-[a-z0-9-]+$` |
+| `edition_id` | text PK | `{exam}-{year}-{sitting}`; matches `^[a-z][a-z_]*-20(1[5-9]\|2[0-5])-[a-z0-9-]+$` (the exam part allows `_` for `common_test`) |
 | `exam_id` | text | one of `sat`, `psychometric`, `csat`, `gaokao`, `common_test`, `enem` (FR-001) |
 | `year` | int | 2015–2025 |
 | `sitting` | text | sitting, form, or paper name (e.g. `national-i`, `main`, `practice-03`) |
@@ -53,7 +71,7 @@ rows that are no longer produced. Unchanged inputs produce zero writes (FR-019).
 | `lineage` | text | format era, e.g. `sat-paper-2016`, `sat-digital`, `center-test`, `common-test` |
 | `language` | text | BCP 47, e.g. `ko`, `zh-Hans`, `ja`, `he`, `pt-BR`, `en` |
 | `translation_of` | text FK → `exam_editions` | set on official English editions paired with an original |
-| `evidence` | jsonb | list of `{type, source_id \| artifact_sha256, note}`; must not be empty |
+| `evidence` | jsonb | list of `{type, source_id \| artifact_sha256, note}`; must not be empty. Types: `release_page`, `statement` (an official statement that the paper was not released), `index_absence` (absent from an official listing the catalog marks `complete_listing: true`) |
 
 Validation, enforced by the `catalog` stage before any write and fatal on failure:
 - Every one of the 66 `(exam_id, year)` cells has ≥ 1 edition (FR-003).
@@ -62,6 +80,11 @@ Validation, enforced by the `catalog` stage before any write and fatal on failur
   else the edition is rejected with a message saying which role is missing.
 - `exam_id` must be one of the six exams in `catalog.yaml`, and each exam must declare
   `publishes_keys: true` with evidence (FR-006).
+- `not_released` editions need a `statement` or `index_absence` item. An `index_absence`
+  item is valid only for a seed marked `complete_listing: true`. Absence from any other page
+  is "not found", which is not evidence, and the cell stays unresolved until a maintainer
+  records real evidence (research R1). The dataset card reports the two evidence types
+  separately.
 
 ### `sources`
 
@@ -89,7 +112,7 @@ Candidates on a non-allowlisted domain are created as `rejected`, with reason
 | `source_id` | text FK | the approved source it was fetched from |
 | `role` | text | `paper` \| `key` \| `key_erratum` \| `english` \| `audio` \| `statement` \| `index_page` |
 | `media_type` | text | e.g. `application/pdf`, `audio/mpeg`, `text/html` |
-| `published` | date, nullable | required for `key_erratum` (orders key corrections) |
+| `published` | date, nullable | required for `key_erratum`; optional for `key`, since many ordinary key files carry no date |
 | `bytes` | bigint | |
 
 Changed content at the same URL gets a new `sha256` and a new row. Old rows and blobs are
@@ -115,27 +138,37 @@ never removed (FR-009 edge case).
 | `canonical_question_id` | text, not null | exact-match dedupe key (FR-010); duplicates share it |
 | `section` | text | |
 | `item` | text | printed item number (for the Common Test, the answer-box number) |
+| `print_order` | int, not null | position of the question in the edition, in page and reading order, from 1; the export sorts by it, so item `10` never sorts before `2` |
 | `stem` | text | original language |
 | `choices` | jsonb | ordered list of `{label, text}` in original labels (`①`, `A`, `1`…); empty for free response |
 | `has_figure`, `has_table`, `has_audio`, `is_free_response` | bool, not null | FR-011 |
 | `stimulus_id` | text FK, nullable | |
 | `source_url`, `artifact_sha256`, `page`, `pipeline_version` | not null | provenance (SC-002); `pipeline_version` is the git SHA |
 | `content_hash` | text, not null | excludes `pipeline_version` (R7) |
+| `retired` | bool, not null | true when the latest `extract` run no longer produces this question |
+
+`stimuli` has the same `retired` column.
 
 ### `answer_keys`
 
 | Column | Type | Rules |
 |--------|------|-------|
-| `key_id` | bigserial PK | insertion order breaks ties |
+| `key_id` | bigserial PK | surrogate only; never used for ordering |
 | `question_id` | text FK, not null | |
 | `labels` | text[], not null | sorted set of original choice labels, ≥ 1 element (FR-012); for free response, the official answer string(s) |
 | `artifact_sha256` | text, not null | must be an artifact with role `key` or `key_erratum` for the same edition |
 | `page` | int, not null | |
-| `published` | date, not null | the artifact's publication date |
+| `is_erratum` | bool, not null | the artifact's role is `key_erratum` |
+| `published` | date, nullable | the artifact's `published` date; null for an undated ordinary key |
 | `pipeline_version` | text, not null | |
 | unique | `(question_id, labels, artifact_sha256)` | re-running inserts nothing |
 
-**Current key**: the row with the greatest `(published, key_id)` for the question.
+**Current key**: the row with the greatest `(is_erratum, published NULLS FIRST,
+artifact_sha256)` for the question, an order that uses only stable artifact data, so a
+rebuild picks the same key. An erratum always outranks an ordinary key. If two rows of the
+top `(is_erratum, published)` rank have different `labels`, the official sources disagree,
+so the `key` stage writes a `key_conflict` failure and the view gives the question no
+current key. The tie-break is never used to pick a winner silently.
 
 ### `translations`
 
@@ -155,7 +188,10 @@ never removed (FR-009 edge case).
 
 `translate` writes an `mt` row only when no `official` row exists for the same subject and
 `source_content_hash` (FR-015). English-original questions get no row; the view uses their
-original text (research R10).
+original text. This reads FR-014 as covering English text that is *not* the original
+language: for an English-original edition, FR-010 already requires that text in the
+question record, and a copy in `translations` would be a second store of the same text
+(FR-016). See research R10.
 
 **Preferred translation**: among rows whose `source_content_hash` equals the subject's
 current `content_hash`, prefer `official` over `mt`, then the greatest `translation_id`.
@@ -176,40 +212,48 @@ A translation made from superseded content is never preferred.
 **Reason codes** (`pipeline.extract.ReasonCode`, a `StrEnum`; a test asserts the SQL
 `CHECK` list is identical): `artifact_unreadable`, `unsupported_format`,
 `ocr_low_confidence`, `item_split_failed`, `choices_not_found`, `stimulus_unresolved`,
-`no_official_key`, `key_label_mismatch`, `translation_pairing_mismatch`, `mt_failed`,
-`mt_empty_output`.
+`no_official_key`, `key_label_mismatch`, `key_conflict`, `translation_pairing_mismatch`,
+`mt_failed`, `mt_empty_output`.
 
 ### `exam_checks`
 
 Derived from the ledger's `handcheck` events: `exam_id`, `seed`, `event_seq`, `passed`,
-`n_items`, `n_failed`, `sample_hashes` (text[]). Exam verification status (`unchecked` \|
-`verified` \| `unverified`) is computed from these rows by the function `verify.status()`
-(research R14) and written into every snapshot.
+`n_items`, `n_failed`, and `items` (jsonb: per sampled question its `question_id`,
+`content_hash`, `key_labels`, and verdicts). Exam verification status (`unchecked` \|
+`verified` \| `unverified`) is computed by `verify.status()` from these rows *and* the
+current questions and keys (research R14), so a verified exam whose sampled questions have
+since changed drops back to `unchecked`. The status is written into every snapshot, and the
+rows themselves are snapshotted too.
 
 ### `snapshots`
 
 `version` (PK, `snap-NNNN`), `git_sha`, `catalog_sha256`, `ledger_sha256`, `row_counts`
-(jsonb), `uri`.
+(jsonb), `uri`. This is the registry of published snapshots. It is the one table a
+snapshot does not copy, because its own row is written only after the snapshot is
+published (research R11).
 
 ## View: `questions_flat` (FR-017)
 
-One row per question, combining:
+One row per non-retired question, combining:
 - every `questions` column;
 - `edition_kind`, `lineage`, `language`, and `exam_id` from `exam_editions`;
 - the **current key**: `key_labels`, `key_artifact_sha256`, `key_page`;
 - the **preferred English**: `english_stem`, `english_choices`, `translation_source`
   (`original` for English-original editions, otherwise `official` or `mt`), and the
   translation's provenance;
-- the stimulus: `stimulus_modality` and `stimulus_english` (the preferred translation of a
-  text stimulus);
+- the stimulus: `stimulus_modality`, `stimulus_english` (the preferred translation of a
+  text stimulus), and that translation's own provenance: `stimulus_translation_source`,
+  `stimulus_translation_artifact_sha256`, `stimulus_mt_model`, `stimulus_mt_model_revision`,
+  and `stimulus_mt_prompt_hash`. A stem and its stimulus can come from different sources;
 - `eligible` (bool) and `ineligible_reason` (text, null when eligible).
 
 `eligible` is true exactly when all of these hold (spec Assumptions): no figure, table,
-audio, or free-response flag; `jsonb_array_length(choices) >= 2`; exactly one key label;
-a current key exists; English exists; and the stimulus, if any, is `text` with English.
-`ineligible_reason` names the first rule that fails, in the order listed. Exam-level
-`unverified` exclusion is applied by the export, not the view, because verification status
-lives in the ledger.
+audio, or free-response flag; `jsonb_array_length(choices) >= 2`; a current key exists
+(none exists under `key_conflict`); it has exactly one label, and that label is among the
+question's current choice labels; English exists; and the stimulus, if any, is `text`
+with English. `ineligible_reason` names the first rule that fails, in the order listed.
+The view does not apply the exam-level `unverified` exclusion. The export applies it,
+reading `exam_status.parquet` from the same snapshot (contracts/outputs.md).
 
 ## State rules
 
@@ -227,11 +271,14 @@ allowlisted official copy is found). The next `catalog` run reconciles the chang
 **Source decision**: `pending` → `approved` | `rejected`, through ledger `review` events
 (the latest wins). Only `approved` sources are fetched or cited as evidence.
 
-**Key currency**: a new `key_erratum` artifact adds a row whose `published` date is later,
-so it becomes current. The older row stays for audit (spec edge case).
+**Key currency**: a new `key_erratum` artifact adds a row that outranks the ordinary key
+(and any earlier erratum), so it becomes current. The older row stays for audit (spec edge
+case).
 
-**Exam verification**: `unchecked` → `verified` | `unverified`; `unverified` → `verified`
-only under the re-extraction and new-seed rule (research R14).
+**Exam verification**: `unchecked` → `verified` | `unverified`. `verified` → `unchecked`
+when any sampled question's current content hash or key differs from the recorded one.
+`unverified` → `verified` only under the recovery rule: a new seed, every previously failed
+question changed, and those questions re-checked (research R14).
 
 ## Volume estimate
 

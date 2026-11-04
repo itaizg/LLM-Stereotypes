@@ -9,13 +9,17 @@
 | `manifest.json` | `{version, git_sha, catalog_sha256, ledger_sha256, row_counts: {table: n}, files: {name: sha256}}` |
 | `exam_editions.parquet`, `sources.parquet`, `artifacts.parquet` | the catalog dataset |
 | `questions.parquet`, `stimuli.parquet`, `answer_keys.parquet`, `translations.parquet`, `extraction_failures.parquet` | the questions dataset |
-| `questions_flat.parquet` | the materialized view; the **only** input to `export` (FR-017, FR-023) |
-| `exam_status.parquet` | `exam_id`, `status` (`unchecked`\|`verified`\|`unverified`), latest seed |
+| `exam_checks.parquet` | the hand-check event rows behind the status below |
+| `questions_flat.parquet` | the materialized view; the only source of question data for `export` (FR-017, FR-023) |
+| `exam_status.parquet` | `exam_id`, `status` (`unchecked`\|`verified`\|`unverified`), latest seed; the export reads it to refuse `unverified` exams (FR-024) |
 | `data_dictionary.md` | every table and column, generated from `schema.sql` comments (FR-022) |
 | `dataset_card.md` | see below |
 
-Snapshots are written once and never modified. The `snapshot` stage refuses to write over
-an existing version.
+Every table except the `snapshots` registry is written; the registry row is added once the
+snapshot is published. `manifest.json` is written last, and a version exists only once its
+manifest does. Published snapshots are never modified. A run that fails before its manifest
+is written leaves an unpublished version, which the next run reuses and overwrites
+(research R11).
 
 ### Dataset card sections
 
@@ -74,7 +78,14 @@ and `answer`, and ignores the other keys.
         "translation_source": "mt",
         "mt_model": "claude-sonnet-5-5",
         "mt_model_revision": "…",
-        "mt_prompt_hash": "…"
+        "mt_prompt_hash": "…",
+        "stimulus_translation": {
+          "translation_source": "official",
+          "artifact_sha256": "…",
+          "mt_model": null,
+          "mt_model_revision": null,
+          "mt_prompt_hash": null
+        }
       }
     }
   ]
@@ -83,14 +94,16 @@ and `answer`, and ignores the other keys.
 
 Rules:
 - Only rows with `eligible = true` from the snapshot's `questions_flat` are included, and
-  the exam must not be `unverified` (FR-024). `unchecked` exams are exported with
+  the exam must not be `unverified` in the same snapshot's `exam_status.parquet` (FR-024). `unchecked` exams are exported with
   `"verification": "unchecked"`.
 - `choices` are relabelled `A)`, `B)`, … in original order. `answer` is the relabelled
   letter of the single key label, and `original_labels` keeps the mapping.
 - For a question with a text stimulus, `question` is the stimulus English, a blank line
-  (`\n\n`), then the stem English, and `stimulus_id` is set (FR-023). Otherwise
-  `stimulus_id` is null.
-- Questions are ordered by `(edition_id, section, item)`, with `index` running 1..N. The
+  (`\n\n`), then the stem English, and `stimulus_id` is set (FR-023). The stimulus text
+  can come from a different source than the stem, so its provenance is given separately in
+  `stimulus_translation`. Otherwise `stimulus_id` and `stimulus_translation` are null.
+- Questions are ordered by `(edition_id, print_order)`, i.e. printed order, so item `10`
+  follows `9` rather than `1`. `index` runs 1..N. The
   JSON is written with `sort_keys`, `ensure_ascii=False`, `indent=2`, and a trailing
   newline. There are no timestamps. The same snapshot and exam always produce identical
   bytes.

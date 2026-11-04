@@ -10,7 +10,7 @@ tracked file.
 version: 1
 translation:
   model: claude-sonnet-5-5          # MT model; recorded on every MT row
-  base_url: https://api.anthropic.com/v1/
+  base_url: https://api.anthropic.com/v1/   # part of the MT cache key (research R10)
 defaults:
   rate_limit_seconds: 5
 exams:
@@ -23,7 +23,9 @@ exams:
     domains: [www.gov.br, download.inep.gov.br]
     rate_limit_seconds: 10           # optional override
     seeds:                           # index pages / sitemaps for discovery (R1)
-      - https://www.gov.br/inep/…/provas-e-gabaritos
+      - url: https://www.gov.br/inep/…/provas-e-gabaritos
+        complete_listing: true       # the body's complete official archive; only then
+                                     #   can absence be `index_absence` evidence
     parse:                           # generic parser config (R8)
       item_marker: '^QUESTÃO\s+(\d+)'
       choice_markers: [A, B, C, D, E]
@@ -53,26 +55,41 @@ editions:
     lineage: gaokao-national
     language: zh-Hans
     evidence:
-      - {type: index_crawl, artifact_sha256: …, note: "NEEA index page lists no paper"}
+      - {type: statement, source_id: src_…, note: "NEEA notice: paper not published"}
+  - edition_id: common_test-2021-main
+    exam: common_test
+    year: 2021
+    sitting: main
+    kind: administered
+    status: ingested
+    # …
 ```
 
+`translation_of: <edition_id>` marks an official English edition. It may add
+`item_map: {"<section>:<item>": "<section>:<item>"}` when its numbering differs from the
+original's. Without a map, items pair by identical `(section, item)` and must pass the
+structural check (research R10).
+
 Rules: the `catalog` stage validates everything in data-model.md, `exam_editions`, before
-writing. Exam keys in `exams` define the scope (FR-001). Adding a Gaokao provincial paper
+writing. `not_released` needs a `statement`, or an `index_absence` item whose seed is
+`complete_listing: true`. Exam keys in `exams` define the scope (FR-001). Adding a Gaokao provincial paper
 later is just another `editions` entry, with no schema change (FR-002).
 
 ## `pipeline/ledger.jsonl` (machine-written, append-only)
 
 One JSON object per line, in canonical JSON (sorted keys, compact). Lines are never edited
 or removed. A test checks that the file is a prefix-extension of its previous committed
-version. Every event has `seq` (monotonic int), `kind`, and `at` (UTC ISO-8601; for
-audit only, never part of any hash or ID).
+version. Every event has `seq`, `kind`, and `at` (UTC ISO-8601; for audit only, never part
+of any hash or ID). `seq` is allocated, and the line appended and fsynced, while the
+pipeline write lock is held (research R16), so `seq` is strictly increasing with no ties.
+`catalog` fails on a duplicate or decreasing `seq`.
 
 | `kind` | Fields |
 |--------|--------|
 | `candidate` | `source_id`, `url`, `domain`, `method` (`index_crawl`\|`manual`), `found_on`, `auto_decision` (`rejected` + reason when off-allowlist, else null) |
 | `review` | `source_id`, `decision` (`approved`\|`rejected`), `edition_id`, `role`, `published`, `reason` |
 | `fetch` | `source_id`, `outcome`, `sha256` (when fetched), `media_type`, `bytes`, `http_status` |
-| `handcheck` | `exam_id`, `seed`, `items: [{question_id, content_hash, stem_ok, choices_ok, key_ok}]` |
+| `handcheck` | `exam_id`, `seed`, `items: [{question_id, content_hash, key_labels, stem_ok, choices_ok, key_ok, forced}]` (`forced` marks a previously failed question added to a recovery sample, research R14) |
 | `translation_review` | `language`, `seed`, `items: [{subject_id, translation_id, score}]` (score 0–3) |
 
 The current decision for a source is that of its latest `review` event. `catalog` replays
@@ -91,7 +108,8 @@ samples:
 ```
 
 The guard fails (exit 3) when:
-1. a tracked file outside this list contains a corpus fingerprint;
+1. a tracked file outside this list contains a corpus fingerprint, after JSON and escape
+   decoding (research R13), or is a tracked `.pdf`, `.hwp`, `.parquet`, or audio file;
 2. the questions committed for one exam across all its samples exceed
    `SAMPLE_CAP_PER_EXAM` (50, defined once in `pipeline/corpus.py`);
 3. an entry has an empty `licence` or `licence_evidence`.

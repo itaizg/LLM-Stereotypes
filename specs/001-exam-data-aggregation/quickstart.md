@@ -81,7 +81,11 @@ Expected:
 - Figure, table, audio, and free-response items are stored with `eligible = false`.
 - Two identical items in two editions share one `canonical_question_id`. A one-character
   difference does not.
-- A key erratum becomes current, and the old key row remains.
+- A key erratum becomes current, and the old key row remains. An undated ordinary key is
+  stored and used. Two equal-rank keys that disagree produce `key_conflict` and no current
+  key.
+- A question that disappears on re-extraction is retired, not deleted, and its key and
+  translation rows remain. Items numbered 2 and 10 export in printed order.
 - Half the synthetic items get `official` English and the rest get `mt`, with model,
   revision, and prompt hash recorded. A fake translator that returns empty text produces
   `mt_empty_output`.
@@ -102,7 +106,13 @@ Expected:
 - The exported bank loads through `harness.config.load_suite` (paired with the tracked
   `suites/stereotype_threat/conditions.yaml`, as CI already does). A `MockBackend` run
   writes the required artifacts, with no harness file modified.
-- An exam with a failing hand-check event is refused on export with exit code 3.
+- An exam with a failing hand-check event is refused on export with exit code 3, using
+  that snapshot's `exam_status.parquet`. A failed exam recovers only with a new seed whose
+  sample includes the previously failed, now changed, questions. A passed check whose
+  sampled questions later change reads `unchecked`.
+- A snapshot taken right after `verify record`, with no `catalog` run in between, includes
+  the new event. A snapshot that fails before its manifest can be rerun under the same
+  version. A second writing command started while one runs exits with code 4.
 - Rebuild equivalence: a rebuild into an empty schema from the same catalog, ledger, and
   blobs reproduces 100% of per-question content hashes (SC-005).
 
@@ -122,8 +132,9 @@ uv run pytest tests/pipeline/test_guard.py -q
 uv run python -m pipeline.corpus
 ```
 
-Expected: the tests show the guard failing (exit 3) in each of the three planted cases: a
-corpus string outside the allowlist, a sample over the cap, and an entry with no licence.
+Expected: the tests show the guard failing (exit 3) in each planted case: a corpus string
+outside the allowlist (also as `\uXXXX`-escaped CJK in a JSON file, and as MT English), a
+tracked PDF, a sample over the cap, and an entry with no licence.
 On the real repository, the second command exits 0. This also runs as a pre-commit hook.
 
 ## Scenario 7: the dependency boundary (FR-030)
