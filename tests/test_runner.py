@@ -4,8 +4,6 @@ from harness.backends.mock import MockBackend
 from harness.config import load_suite
 from harness.runner import run_suite
 
-SUITE_DIR = Path(__file__).resolve().parent.parent / "suites" / "stereotype_threat"
-
 
 class CountingBackend:
     """Wraps a backend and counts real generate() calls, to prove resume
@@ -30,8 +28,8 @@ def _gold_answers(config):
     return {q.question_id: q.answer for q in config.questions}
 
 
-def test_run_suite_writes_all_artifacts(tmp_path):
-    config = load_suite(SUITE_DIR)
+def test_run_suite_writes_all_artifacts(suite_dir: Path, tmp_path: Path) -> None:
+    config = load_suite(suite_dir)
     backend = MockBackend(_gold_answers(config), target_accuracy=0.7)
 
     run_dir = run_suite(
@@ -51,8 +49,10 @@ def test_run_suite_writes_all_artifacts(tmp_path):
     assert len(lines) == 1 + 12 * 31 * 2  # header + conditions * questions * samples
 
 
-def test_run_suite_resume_makes_zero_backend_calls_on_second_run(tmp_path):
-    config = load_suite(SUITE_DIR)
+def test_run_suite_resume_makes_zero_backend_calls_on_second_run(
+    suite_dir: Path, tmp_path: Path
+) -> None:
+    config = load_suite(suite_dir)
     cache_path = tmp_path / "shared_cache.sqlite3"
 
     backend_1 = CountingBackend(MockBackend(_gold_answers(config), target_accuracy=0.6))
@@ -78,8 +78,10 @@ def test_run_suite_resume_makes_zero_backend_calls_on_second_run(tmp_path):
     assert backend_2.call_count == 0
 
 
-def test_run_suite_partial_overlap_only_calls_backend_for_new_jobs(tmp_path):
-    config = load_suite(SUITE_DIR)
+def test_run_suite_partial_overlap_only_calls_backend_for_new_jobs(
+    suite_dir: Path, tmp_path: Path
+) -> None:
+    config = load_suite(suite_dir)
     cache_path = tmp_path / "shared_cache.sqlite3"
 
     backend_1 = CountingBackend(MockBackend(_gold_answers(config), target_accuracy=0.6))

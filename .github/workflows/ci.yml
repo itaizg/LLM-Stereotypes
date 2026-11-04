@@ -72,27 +72,38 @@ jobs:
           uv sync --locked
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
+      # The real SAT question bank is College Board material and is not
+      # tracked, so CI pairs the real conditions.yaml with the synthetic
+      # bank -- assembled by convention as a suite dir, no harness flags.
+      - name: Assemble the suite with the synthetic question bank
+        run: |
+          mkdir -p ci_suites/stereotype_threat
+          cp suites/stereotype_threat/conditions.yaml ci_suites/stereotype_threat/
+          cp tests/fixtures/synthetic_questions.json \
+            ci_suites/stereotype_threat/questions.json
+
       # Drives the harness through its own CLI rather than importing it,
       # so the run/report/compare contract is covered as a user hits it.
       - name: Run two suites through the CLI against MockBackend
         run: |
-          python -m harness run suites/stereotype_threat \
+          python -m harness run ci_suites/stereotype_threat \
             --backend mock --models ci-baseline --n-samples 5 \
             --mock-target-accuracy 0.55 --results-dir ci_results
-          python -m harness run suites/stereotype_threat \
+          python -m harness run ci_suites/stereotype_threat \
             --backend mock --models ci-candidate --n-samples 5 \
             --mock-target-accuracy 0.85 --results-dir ci_results
 
       - name: Re-render the report for the baseline run
         run: |
           BASELINE=$(ls -d ci_results/stereotype_threat_ci-baseline_*)
-          python -m harness report "$BASELINE"
+          python -m harness report "$BASELINE" --suites-root ci_suites
 
       - name: Compare the two runs
         run: |
           BASELINE=$(ls -d ci_results/stereotype_threat_ci-baseline_*)
           CANDIDATE=$(ls -d ci_results/stereotype_threat_ci-candidate_*)
-          python -m harness compare "$BASELINE" "$CANDIDATE" > compare.json
+          python -m harness compare "$BASELINE" "$CANDIDATE" \
+            --suites-root ci_suites > compare.json
           cat compare.json
 
       # Asserts the artifacts a run is contractually required to produce,

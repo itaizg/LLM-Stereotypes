@@ -9,9 +9,9 @@ the official practice test page, and pass their URLs here:
 Usage:
     python data/fetch_sat.py --test-url <url> --answers-url <url>
 
-Downloads land in data/pdfs/ (gitignored). questions.json already contains
-the transcribed question bank, so fetching the PDFs is only needed to inspect
-the original source or re-transcribe questions.
+Downloads land in data/pdfs/ (gitignored). The transcribed question bank
+(suites/stereotype_threat/questions.json) is also College Board material, so
+it is kept locally and gitignored too; these PDFs are its source.
 """
 
 import argparse
