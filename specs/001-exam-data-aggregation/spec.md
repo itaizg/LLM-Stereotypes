@@ -321,9 +321,10 @@ store, and compare per-question content hashes and snapshot row counts with the 
   unchanged and GPU-free (constitution Project Constraints, Principle V).
 - **FR-031**: Every query against the store MUST use parameters, never string-built SQL
   (team directive CDR-2026-021).
-- **FR-032**: The "no heavyweight dependencies" rule is obsolete and MUST be removed from
-  both CLAUDE.md and the constitution (Project Constraints → Dependencies), so the two stay
-  consistent. The constitution change MUST follow its own amendment process: a pull request
+- **FR-032**: The "no heavyweight dependencies" rule is obsolete (author decision,
+  2026-11-04). This feature MUST remove it from both CLAUDE.md and the constitution (Project
+  Constraints → Dependencies), so the two stay consistent. Until that amendment merges, the
+  current rule still governs, and no pipeline dependency that it prohibits may be added. The constitution change MUST follow its own amendment process: a pull request
   that edits the constitution, updates the Sync Impact Report, and bumps the version. It
   MUST land before or together with the first pipeline dependency. The rest of the
   Dependencies constraint is unchanged: Python 3.13, `uv`, the lockfile, and the GPU-free
@@ -450,8 +451,9 @@ store, and compare per-question content hashes and snapshot row counts with the 
   kind `practice` and assigned to their release year, kept distinct from `administered`
   forms (FR-005).
 - Q: How should brief rule 7's dependency change be reconciled with the constitution?
-  → A: The "no heavyweight dependencies" rule is obsolete. It is removed from both CLAUDE.md
-  and the constitution through the amendment process (FR-032).
+  → A: The "no heavyweight dependencies" rule is obsolete. It is to be removed from both
+  CLAUDE.md and the constitution through the amendment process (FR-032). The amendment is
+  not yet applied.
 - Correction (spec review): small question samples may be committed to git, which relaxes
   brief rule 5. They are bounded by an allowlist and a per-exam cap, the bulk corpus stays
   out, and test fixtures stay synthetic (FR-025, FR-026, SC-008).

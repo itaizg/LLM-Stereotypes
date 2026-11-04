@@ -98,8 +98,10 @@ def test_assemble_prompt_omits_stereotype_fragment_when_none(suite_dir: Path) ->
     question = config.questions[0]
     prompt = config.assemble_prompt("base_none", question)
     identity_text = config.identities["base"].text
-    # No stereotype text should appear between the identity and the question.
-    assert prompt.startswith((identity_text + "\n" + question.question, identity_text))
+    # No stereotype text may appear between the identity and the question:
+    # the whole prompt is exactly identity, stem, choices.
+    choice_block = "\n".join(question.choices)
+    assert prompt == f"{identity_text}\n{question.question}\n{choice_block}"
 
 
 def test_expand_jobs_produces_full_cartesian_product(suite_dir: Path) -> None:
