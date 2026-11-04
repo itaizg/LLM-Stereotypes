@@ -96,7 +96,9 @@ new is added.
    extraction runs, **Then** the question is stored with the matching modality flag and is
    marked ineligible for suite export, not discarded.
 4. **Given** the same question appearing in two editions, **When** extraction runs,
-   **Then** both records are kept and both point to one shared canonical question.
+   **Then** both records are kept and both point to one shared canonical question. Two
+   questions are the same only if their normalized original-language stem and choices are
+   identical; near-matches are not linked (FR-010).
 5. **Given** a stage that has already completed, **When** it is run again on the same
    inputs, **Then** no records are added or changed.
 
@@ -146,13 +148,16 @@ mock model.
 **Acceptance Scenarios**:
 
 1. **Given** an exam with eligible questions, **When** the maintainer exports it with the
-   eligible-only option, **Then** the bank contains only text-only, multiple-choice,
-   officially keyed questions with English text, each carrying its provenance.
+   eligible-only option, **Then** the bank contains only text-only, single-answer multiple-choice,
+   officially keyed questions with English text, each carrying its provenance. A question
+   that uses a text shared passage carries that passage's English text before its stem.
 2. **Given** an exported bank, **When** the harness loads it, **Then** it loads and the
    mock-model smoke test passes, with no harness code changed.
 3. **Given** a question whose current key or preferred translation changes, **When** the
-   bank is exported again, **Then** the export reflects only the new current values. The
-   export never shows two conflicting values for the same question.
+   bank is exported again from a new snapshot, **Then** the export reflects only the new
+   current values. The export never shows two conflicting values for the same question.
+4. **Given** a snapshot, **When** the same exam is exported from it twice, **Then** the two
+   files are byte-identical and both record that snapshot's version.
 
 ---
 
@@ -192,8 +197,9 @@ store, and compare per-question content hashes and snapshot row counts with the 
 - **Search result on a non-allowlisted domain** (e.g. a mirror or prep site): it is
   recorded as a rejected candidate and never fetched, even if it holds the paper.
 - **Shared stimulus** (one passage, chart, or listening clip used by several questions):
-  each question records which shared stimulus it uses, so questions can be exported
-  without losing their context.
+  the stimulus is stored once and each question records which one it uses. On export, a
+  text stimulus's English text is placed before each question's stem, so the question keeps
+  its context; a figure or audio stimulus makes the question ineligible (FR-023).
 - **Format breaks within an exam** (e.g. SAT paper → digital, the 2016 SAT redesign, Japan's
   National Center Test → Common Test in 2021): the edition records its format/lineage, and
   the cell is not reported as missing.
@@ -250,11 +256,17 @@ store, and compare per-question content hashes and snapshot row counts with the 
   question identifier, the edition identifier, a canonical-question link for duplicates, a
   section, the stem and choices, modality flags (figure, table, audio, free-response), a
   shared-stimulus reference where applicable, and provenance (source URL, raw file content
-  hash, page, pipeline version).
+  hash, page, pipeline version). Two questions MUST share a canonical question exactly when
+  their original-language stem and choices are identical after Unicode NFKC normalization,
+  whitespace collapsing, and punctuation removal. Near-matches MUST NOT be linked, so the
+  link is deterministic across rebuilds (FR-020).
 - **FR-011**: All question types MUST be ingested. Figure, table, audio, and free-response
   questions MUST be flagged ineligible for suite export and MUST NOT be dropped.
 - **FR-012**: Answer keys MUST come only from official artifacts. Each key record MUST link
-  to a question and cite the official raw file's content hash and page. Keys MUST NOT be
+  to a question and cite the official raw file's content hash and page. A key is a set of one
+  or more choice labels, valid for any number of choices. Multi-answer questions are stored
+  in full but are ineligible for suite export; single-answer questions are eligible whatever
+  their choice count. Keys MUST NOT be
   generated, inferred, or repaired by a model or by hand.
 - **FR-013**: A question without an official key, or one that cannot be extracted
   reliably, MUST produce a failure record with a reason code from a fixed, documented
@@ -291,10 +303,19 @@ store, and compare per-question content hashes and snapshot row counts with the 
   each snapshot.
 - **FR-023**: The maintainer MUST be able to export the eligible questions of one exam as
   a question bank in the existing suite format, which the harness loads unchanged
-  (constitution Principle V: new suites through config only).
+  (constitution Principle V: new suites through config only). For a question that uses a
+  text shared stimulus, the export MUST put the stimulus's preferred English text, then a
+  blank line, before the question stem in the question field, and MUST record the stimulus
+  id in the question's provenance. Exports MUST be built only from a named snapshot, never
+  from the live store, and each bank MUST record that snapshot's version. Exporting the same
+  exam from the same snapshot MUST produce a byte-identical file.
 - **FR-024**: The system MUST support a hand-check of a random, seeded sample of 50
   questions per exam against the source, and a human-reviewed, scored sample of 30
-  translated questions per language, with results recorded.
+  translated questions per language, with results recorded. If any sampled question fails
+  to match the source in stem, choices, or key, the exam MUST be marked `unverified`: it is
+  excluded from suite export and labelled `unverified` in snapshots until its extraction is
+  fixed, its questions are re-extracted, and a new 50-question sample, drawn with a new
+  recorded seed, passes in full.
 
 **Integrity and repository rules (brief rules 5–6, constitution)**
 
@@ -348,18 +369,20 @@ store, and compare per-question content hashes and snapshot row counts with the 
 - **Question**: one question's original-language content, modality flags, shared-stimulus
   reference, canonical-question link, and provenance. It belongs to one edition.
 - **Shared Stimulus**: a passage, figure, or audio item that several questions refer to.
+  It is stored once, with its own modality flag and English translation.
 - **Translation**: an English rendering of one question. It is official or machine-made,
   with provenance, and for machine translations also model, revision, and prompt hash.
-- **Answer Key**: the official correct answer for one question, citing the official
-  artifact hash and page. A question may have several over time, and exactly one is current.
+- **Answer Key**: the official correct answer(s) for one question, as a set of one or more
+  choice labels, citing the official artifact hash and page. A question may have several over time, and exactly one is current.
 - **Extraction Failure**: a record that a question (or edition) could not be extracted,
   keyed, or translated, with a reason code from a fixed list.
 - **Flattened Question View**: a read-only combination of a question with its current key
-  and its preferred translation. It is the only input to exports.
+  and its preferred translation, as captured in a snapshot. The snapshot's copy of this view
+  is the only input to exports.
 - **Snapshot**: a versioned, immutable copy of both datasets, delivered with its data
   dictionary and dataset card.
 - **Suite Question Bank**: an exported file in the harness's existing suite format,
-  holding eligible questions of one exam.
+  holding eligible questions of one exam and recording the snapshot version it came from.
 
 ## Success Criteria *(mandatory)*
 
@@ -371,7 +394,8 @@ store, and compare per-question content hashes and snapshot row counts with the 
   records lack a valid edition, 0 have missing provenance, and 0 keys lack an official
   source. These counts are checked automatically on every change.
 - **SC-003**: In a hand-checked, seeded random sample of 50 questions per exam (300 total),
-  100% match the source in stem, choices, and key.
+  100% match the source in stem, choices, and key. No exam that failed its latest check
+  appears in a suite export.
 - **SC-004**: 100% of non-English questions have an English record or a recorded failure
   reason. A human-reviewed sample of 30 translations per language is scored, and the scores
   are published in the dataset card. No pass threshold is set in advance, and scores are
@@ -407,9 +431,10 @@ store, and compare per-question content hashes and snapshot row counts with the 
   change.
 - Official translations published by an exam body (e.g. the Psychometric exam's English
   version) count as `official` translations.
-- Eligibility for suite export means: text-only, multiple-choice, has a current official
-  key, has a preferred English translation, and has no shared stimulus that is itself
-  ineligible.
+- Eligibility for suite export means: text-only, multiple-choice with exactly one correct
+  choice, has a current official key, has a preferred English translation, and either uses
+  no shared stimulus or uses a text-only one that itself has a preferred English translation.
+  The question's exam must also not be `unverified` (FR-024).
 - The 50-per-exam and 30-per-language samples are drawn with a recorded seed, so the same
   sample can be regenerated for audit.
 - "Small sample" (FR-025) means at most 50 questions per exam across all committed sample
@@ -460,3 +485,24 @@ store, and compare per-question content hashes and snapshot row counts with the 
 - Follow-up: the cap of 50 questions per exam is confirmed. Committed samples may contain
   only openly licensed (public domain or redistributable) questions, with licence evidence
   in the allowlist (FR-025, FR-026).
+- Q: When a question has more than one correct answer, or a choice count other than four,
+  how is its key stored and exported? → A: The key is a set of one or more choice labels,
+  for any number of choices. Multi-answer questions are stored but not exported, and
+  single-answer questions are exported whatever their choice count (FR-012). Exporting
+  multi-answer questions, which needs harness set-match scoring, is a high-priority item
+  in TODO.md.
+- Q: When several questions share one passage, chart or listening clip, how does the
+  exported bank include it? → A: The dataset stores the stimulus once. On export, a text
+  stimulus's English text is placed before each question's stem and its id is kept in
+  provenance, with no harness change. A figure or audio stimulus makes the question
+  ineligible (FR-023).
+- Q: How does the system decide that two question records are the same question? → A: Exact
+  match only: identical original-language stem and choices after normalizing Unicode,
+  whitespace and punctuation. Near-matches are not linked (FR-010).
+- Q: If an exam's hand-check finds a sampled question that does not match the source, what
+  happens to that exam's data? → A: The exam is marked `unverified`, excluded from suite
+  export and labelled in snapshots, until its extraction is fixed, it is re-extracted, and a
+  new seeded 50-question sample passes (FR-024, SC-003).
+- Q: Is a suite question bank built from a fixed snapshot or from the live store? → A: Only
+  from a named snapshot. The bank records the snapshot version, and re-exporting from the
+  same snapshot gives a byte-identical file (FR-023).
