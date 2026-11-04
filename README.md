@@ -102,7 +102,7 @@ In conclusion, it is highly likely the in gemma 9b's training and definitions co
 2. Get an access token from Hugging Face, and make sure you have an environment variable "HF_TOKEN" with your key before running each notebook.
 3. The `experiment_gemma_2b.ipynb` and `experiment_gemma_9b.ipynb` notebooks were run from Google Colab with an A100 GPU; `temperature_comparison.ipynb` was run with a T4 GPU. Running on g6.2xlarge on AWS or on local Linux machines with a GPU should also work, but not tested.
 4. The original notebooks, `prompts.py`, and `utils.py` have moved to `legacy/` — see `legacy/BUGS.md` for known issues in that code before drawing conclusions from its output.
-5. The source SAT PDFs are not committed (College Board copyright); fetch them with `python data/fetch_sat.py` if you need the originals. The transcribed question bank lives in `questions.json`.
+5. Neither the source SAT PDFs nor the transcribed question bank are committed (College Board copyright). Fetch the PDFs with `python data/fetch_sat.py` and keep your transcribed bank locally at `suites/stereotype_threat/questions.json` (and `questions.json` at the repo root for the legacy notebooks); both paths are gitignored. Tests and CI run on a synthetic stand-in, `tests/fixtures/synthetic_questions.json`, which has the same question IDs and answer letters but no exam text.
 
 ## Further remarks
 

@@ -55,7 +55,7 @@ harness/
 suites/
   stereotype_threat/
     conditions.yaml    # identity prompts × stereotype framings × controls (ported verbatim from prompts.py)
-    questions.json     # existing bank, plus provenance metadata
+    questions.json     # existing bank, plus provenance metadata (local only, gitignored: College Board copyright; tests use tests/fixtures/synthetic_questions.json)
 data/
   fetch_sat.py     # downloads SAT practice PDFs from College Board; PDFs themselves are NOT committed
 legacy/            # original notebooks, untouched

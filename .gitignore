@@ -169,3 +169,9 @@ data/pdfs/
 # Throwaway artifacts from the CI harness-smoke job (.github/workflows/ci.yml)
 ci_results/
 compare.json
+
+# SAT question banks: College Board copyright, kept local only (see README).
+# Tests and CI use tests/fixtures/synthetic_questions.json instead.
+/questions.json
+suites/stereotype_threat/questions.json
+ci_suites/

@@ -1,0 +1,380 @@
+{
+  "provenance": {
+    "source": "synthetic",
+    "note": "Synthetic stand-in for the stereotype_threat question bank, used by tests and CI. Mirrors the real bank's shape: the same 31 question_ids, original-test indices and answer letters, so MockBackend statistics behave as with the real bank. Contains no exam text. The real bank is not tracked (College Board copyright); see README."
+  },
+  "questions": [
+    {
+      "question_id": "q01",
+      "index": 1,
+      "question": "Synthetic question 1: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A1",
+        "B) synthetic option B1",
+        "C) synthetic option C1",
+        "D) synthetic option D1"
+      ],
+      "answer": "B"
+    },
+    {
+      "question_id": "q02",
+      "index": 2,
+      "question": "Synthetic question 2: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A2",
+        "B) synthetic option B2",
+        "C) synthetic option C2",
+        "D) synthetic option D2"
+      ],
+      "answer": "C"
+    },
+    {
+      "question_id": "q03",
+      "index": 3,
+      "question": "Synthetic question 3: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A3",
+        "B) synthetic option B3",
+        "C) synthetic option C3",
+        "D) synthetic option D3"
+      ],
+      "answer": "D"
+    },
+    {
+      "question_id": "q04",
+      "index": 4,
+      "question": "Synthetic question 4: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A4",
+        "B) synthetic option B4",
+        "C) synthetic option C4",
+        "D) synthetic option D4"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q05",
+      "index": 5,
+      "question": "Synthetic question 5: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A5",
+        "B) synthetic option B5",
+        "C) synthetic option C5",
+        "D) synthetic option D5"
+      ],
+      "answer": "B"
+    },
+    {
+      "question_id": "q06",
+      "index": 6,
+      "question": "Synthetic question 6: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A6",
+        "B) synthetic option B6",
+        "C) synthetic option C6",
+        "D) synthetic option D6"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q07",
+      "index": 7,
+      "question": "Synthetic question 7: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A7",
+        "B) synthetic option B7",
+        "C) synthetic option C7",
+        "D) synthetic option D7"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q08",
+      "index": 8,
+      "question": "Synthetic question 8: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A8",
+        "B) synthetic option B8",
+        "C) synthetic option C8",
+        "D) synthetic option D8"
+      ],
+      "answer": "D"
+    },
+    {
+      "question_id": "q09",
+      "index": 9,
+      "question": "Synthetic question 9: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A9",
+        "B) synthetic option B9",
+        "C) synthetic option C9",
+        "D) synthetic option D9"
+      ],
+      "answer": "C"
+    },
+    {
+      "question_id": "q10",
+      "index": 10,
+      "question": "Synthetic question 10: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A10",
+        "B) synthetic option B10",
+        "C) synthetic option C10",
+        "D) synthetic option D10"
+      ],
+      "answer": "D"
+    },
+    {
+      "question_id": "q11",
+      "index": 11,
+      "question": "Synthetic question 11: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A11",
+        "B) synthetic option B11",
+        "C) synthetic option C11",
+        "D) synthetic option D11"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q12",
+      "index": 12,
+      "question": "Synthetic question 12: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A12",
+        "B) synthetic option B12",
+        "C) synthetic option C12",
+        "D) synthetic option D12"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q13",
+      "index": 13,
+      "question": "Synthetic question 13: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A13",
+        "B) synthetic option B13",
+        "C) synthetic option C13",
+        "D) synthetic option D13"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q16",
+      "index": 16,
+      "question": "Synthetic question 16: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A16",
+        "B) synthetic option B16",
+        "C) synthetic option C16",
+        "D) synthetic option D16"
+      ],
+      "answer": "C"
+    },
+    {
+      "question_id": "q17",
+      "index": 17,
+      "question": "Synthetic question 17: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A17",
+        "B) synthetic option B17",
+        "C) synthetic option C17",
+        "D) synthetic option D17"
+      ],
+      "answer": "B"
+    },
+    {
+      "question_id": "q18",
+      "index": 18,
+      "question": "Synthetic question 18: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A18",
+        "B) synthetic option B18",
+        "C) synthetic option C18",
+        "D) synthetic option D18"
+      ],
+      "answer": "B"
+    },
+    {
+      "question_id": "q19",
+      "index": 19,
+      "question": "Synthetic question 19: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A19",
+        "B) synthetic option B19",
+        "C) synthetic option C19",
+        "D) synthetic option D19"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q20",
+      "index": 20,
+      "question": "Synthetic question 20: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A20",
+        "B) synthetic option B20",
+        "C) synthetic option C20",
+        "D) synthetic option D20"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q21",
+      "index": 21,
+      "question": "Synthetic question 21: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A21",
+        "B) synthetic option B21",
+        "C) synthetic option C21",
+        "D) synthetic option D21"
+      ],
+      "answer": "C"
+    },
+    {
+      "question_id": "q22",
+      "index": 22,
+      "question": "Synthetic question 22: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A22",
+        "B) synthetic option B22",
+        "C) synthetic option C22",
+        "D) synthetic option D22"
+      ],
+      "answer": "C"
+    },
+    {
+      "question_id": "q23",
+      "index": 23,
+      "question": "Synthetic question 23: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A23",
+        "B) synthetic option B23",
+        "C) synthetic option C23",
+        "D) synthetic option D23"
+      ],
+      "answer": "B"
+    },
+    {
+      "question_id": "q24",
+      "index": 24,
+      "question": "Synthetic question 24: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A24",
+        "B) synthetic option B24",
+        "C) synthetic option C24",
+        "D) synthetic option D24"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q25",
+      "index": 25,
+      "question": "Synthetic question 25: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A25",
+        "B) synthetic option B25",
+        "C) synthetic option C25",
+        "D) synthetic option D25"
+      ],
+      "answer": "B"
+    },
+    {
+      "question_id": "q26",
+      "index": 26,
+      "question": "Synthetic question 26: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A26",
+        "B) synthetic option B26",
+        "C) synthetic option C26",
+        "D) synthetic option D26"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q27",
+      "index": 27,
+      "question": "Synthetic question 27: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A27",
+        "B) synthetic option B27",
+        "C) synthetic option C27",
+        "D) synthetic option D27"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q28",
+      "index": 28,
+      "question": "Synthetic question 28: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A28",
+        "B) synthetic option B28",
+        "C) synthetic option C28",
+        "D) synthetic option D28"
+      ],
+      "answer": "A"
+    },
+    {
+      "question_id": "q29",
+      "index": 29,
+      "question": "Synthetic question 29: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A29",
+        "B) synthetic option B29",
+        "C) synthetic option C29",
+        "D) synthetic option D29"
+      ],
+      "answer": "D"
+    },
+    {
+      "question_id": "q30",
+      "index": 30,
+      "question": "Synthetic question 30: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A30",
+        "B) synthetic option B30",
+        "C) synthetic option C30",
+        "D) synthetic option D30"
+      ],
+      "answer": "C"
+    },
+    {
+      "question_id": "q31",
+      "index": 31,
+      "question": "Synthetic question 31: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A31",
+        "B) synthetic option B31",
+        "C) synthetic option C31",
+        "D) synthetic option D31"
+      ],
+      "answer": "D"
+    },
+    {
+      "question_id": "q32",
+      "index": 32,
+      "question": "Synthetic question 32: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A32",
+        "B) synthetic option B32",
+        "C) synthetic option C32",
+        "D) synthetic option D32"
+      ],
+      "answer": "D"
+    },
+    {
+      "question_id": "q33",
+      "index": 33,
+      "question": "Synthetic question 33: which choice is the correct one?",
+      "choices": [
+        "A) synthetic option A33",
+        "B) synthetic option B33",
+        "C) synthetic option C33",
+        "D) synthetic option D33"
+      ],
+      "answer": "C"
+    }
+  ]
+}
