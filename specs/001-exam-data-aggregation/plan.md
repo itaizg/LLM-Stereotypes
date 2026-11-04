@@ -149,6 +149,8 @@ pipeline/                      # NEW optional package; harness never imports it
 │                              #   + COMMENTs (data dictionary)
 ├── store.py                   # Postgres: connect, apply schema, parameterized reconcile
 ├── blobs.py                   # BlobStore protocol; LocalBlobStore, S3BlobStore
+├── manifests.py               # catalog.yaml and ledger.jsonl as typed data: readers,
+│                              #   ledger replay, catalog validation
 ├── acquire.py                 # stages: catalog, discover, review, fetch
 ├── extract.py                 # stage: extract (text/OCR → questions, stimuli, failures)
 ├── keys.py                    # stage: key (sole writer of answer_keys)
@@ -161,7 +163,9 @@ pipeline/                      # NEW optional package; harness never imports it
 
 tests/pipeline/                # NEW; run by the CI `pipeline` job only
 ├── conftest.py                # Postgres schema-per-test, blob store, synthetic builders
-├── test_acquire.py            # catalog completeness, discover, review, fetch rules
+├── test_acquire.py            # catalog completeness, ledger, review rules
+├── test_store.py              # blob stores, Postgres store, CLI exit codes
+├── test_fetch.py              # discover and fetch rules (allowlist, robots, rate limit)
 ├── test_extract.py            # extract, keys, translate, canonical dedupe, failures
 ├── test_publish.py            # snapshot counts, export byte-identity, harness smoke,
 │                              #   rebuild equivalence, hand-check gating
@@ -182,9 +186,13 @@ by one generic parser (Convention over Configuration). A per-exam parser module 
 only when an exam's layout cannot be expressed as config. That would be the second real
 instance, and would be a justified overrun (YAGNI).
 
-**File count (FR-034)**: 16 new files in `pipeline/` (counting `catalog.yaml`,
-`ledger.jsonl`, `samples/allowlist.yaml`, and `fingerprints.txt`) plus 5 in
-`tests/pipeline/` is **21, over the target of 20 by 1**.
+**File count (FR-034)**: 17 new files in `pipeline/` (counting `catalog.yaml`,
+`ledger.jsonl`, `samples/allowlist.yaml`, and `fingerprints.txt`) plus 7 in
+`tests/pipeline/` is **24, over the target of 20 by 4**. Implementation added three
+files to the earlier estimate of 21, each forced by the 800-line limit (CDR-2026-022)
+and single responsibility: `manifests.py` (typed manifests, split from the acquisition
+stages when `acquire.py` reached 878 lines), `test_store.py`, and `test_fetch.py` (the
+storage and network tests, split from `test_acquire.py`).
 Justification for the PR: (a) `tests/pipeline/` needs its own `conftest.py` so the core CI
 job can ignore the directory without importing pipeline-only dependencies; (b)
 `fingerprints.txt` and `samples/allowlist.yaml` are data files required by FR-025 and
@@ -232,5 +240,5 @@ would put two writers or two reasons to change in one module (FR-016, Principle 
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| 21 new files, against the target of 20 (FR-034 SHOULD) | Separate test directory with its own conftest; two data files required by FR-025 and FR-026 | Putting pipeline tests in `tests/` would make the core CI job import pipeline-only dependencies or skip modules. Merging more modules would break FR-016's single writer or Principle V's single responsibility. |
+| 24 new files, against the target of 20 (FR-034 SHOULD) | Separate test directory with its own conftest; two data files required by FR-025 and FR-026 | Putting pipeline tests in `tests/` would make the core CI job import pipeline-only dependencies or skip modules. Merging more modules would break FR-016's single writer or Principle V's single responsibility. |
 | Postgres needed in tests | FR-027 requires the real store engine to run locally. The `questions_flat` view and reconcile SQL are the logic under test. | SQLite in tests would test a different SQL dialect from production, so the view's behavior would go untested. |

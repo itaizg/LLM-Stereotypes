@@ -2,6 +2,10 @@
 -- the data dictionary (every COMMENT below is published in data_dictionary.md).
 -- Design: specs/001-exam-data-aggregation/data-model.md.
 --
+-- Foreign keys among the catalog tables (exams, exam_editions, sources,
+-- artifacts, exam_checks) are DEFERRABLE INITIALLY DEFERRED so the catalog stage
+-- can reconcile them all in one transaction, in any order.
+--
 -- Everything is idempotent (IF NOT EXISTS / OR REPLACE) so applying it twice
 -- changes nothing. There are no migrations: the store is rebuildable from the
 -- catalog, the ledger, and the blobs (FR-020), so a schema change is a rebuild.
@@ -26,7 +30,8 @@ CREATE TABLE IF NOT EXISTS exams (
 CREATE TABLE IF NOT EXISTS exam_editions (
     edition_id       text PRIMARY KEY
                      CHECK (edition_id ~ '^[a-z][a-z_]*-20(1[5-9]|2[0-5])-[a-z0-9-]+$'),
-    exam_id          text NOT NULL REFERENCES exams (exam_id),
+    exam_id          text NOT NULL REFERENCES exams (exam_id)
+                     DEFERRABLE INITIALLY DEFERRED,
     year             integer NOT NULL CHECK (year BETWEEN 2015 AND 2025),
     sitting          text NOT NULL,
     kind             text NOT NULL CHECK (kind IN ('administered', 'practice')),
@@ -58,7 +63,8 @@ CREATE TABLE IF NOT EXISTS sources (
     domain           text NOT NULL,
     discovery_method text NOT NULL CHECK (discovery_method IN ('index_crawl', 'manual')),
     found_on         text,
-    edition_id       text REFERENCES exam_editions (edition_id),
+    edition_id       text REFERENCES exam_editions (edition_id)
+                     DEFERRABLE INITIALLY DEFERRED,
     decision         text NOT NULL DEFAULT 'pending'
                      CHECK (decision IN ('pending', 'approved', 'rejected')),
     decision_reason  text,
@@ -76,8 +82,10 @@ CREATE TABLE IF NOT EXISTS sources (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS artifacts (
     sha256     text NOT NULL,
-    edition_id text NOT NULL REFERENCES exam_editions (edition_id),
-    source_id  text NOT NULL REFERENCES sources (source_id),
+    edition_id text NOT NULL REFERENCES exam_editions (edition_id)
+               DEFERRABLE INITIALLY DEFERRED,
+    source_id  text NOT NULL REFERENCES sources (source_id)
+               DEFERRABLE INITIALLY DEFERRED,
     role       text NOT NULL
                CHECK (role IN ('paper', 'key', 'key_erratum', 'english', 'audio',
                                'statement', 'index_page')),
@@ -200,7 +208,8 @@ CREATE TABLE IF NOT EXISTS extraction_failures (
 -- exam_checks: hand-check events replayed from the ledger (FR-024)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS exam_checks (
-    exam_id   text NOT NULL REFERENCES exams (exam_id),
+    exam_id   text NOT NULL REFERENCES exams (exam_id)
+              DEFERRABLE INITIALLY DEFERRED,
     event_seq integer NOT NULL,
     seed      bigint NOT NULL,
     passed    boolean NOT NULL,

@@ -1,444 +1,36 @@
-"""Tests for acquisition: blob storage, the store, catalog, discover, review, fetch."""
+"""Tests for the catalog and ledger, the catalog stage, and candidate review."""
 
 from __future__ import annotations
 
-import hashlib
-import io
 import os
-import uuid
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
-from botocore.exceptions import ClientError
-from botocore.stub import Stubber
 from psycopg import sql
-from psycopg.conninfo import make_conninfo
 
-from pipeline import __main__ as cli
-from pipeline.acquire import (
+from pipeline.acquire import review, run_catalog
+from pipeline.manifests import (
     CatalogError,
     LedgerError,
     append_event,
     ledger_is_prefix_extension,
+    load_catalog,
     read_ledger,
+    replay_ledger,
     source_id_for,
+    validate_catalog,
 )
-from pipeline.blobs import (
-    BlobCorruptionError,
-    BlobExistsError,
-    LocalBlobStore,
-    S3BlobStore,
-)
-from pipeline.store import (
-    ConnectionFailed,
-    Counts,
-    LockHeld,
-    StageSummary,
-    apply_schema,
-    connect,
-    insert_if_new,
-    reconcile,
-    redact,
-    write_lock,
-)
+from pipeline.store import Counts
 
+if TYPE_CHECKING:
+    from conftest import DatasetBuilder
 
-def sha(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-class TestBlobStore:
-    def test_put_returns_the_hash_and_stores_under_raw(
-        self, blob_store: LocalBlobStore, tmp_path: Path
-    ) -> None:
-        digest = blob_store.put(b"synthetic paper bytes")
-        assert digest == sha(b"synthetic paper bytes")
-        assert (
-            tmp_path / "blobs" / "raw" / digest
-        ).read_bytes() == b"synthetic paper bytes"
-        assert blob_store.get(digest) == b"synthetic paper bytes"
-        assert blob_store.exists(digest)
-
-    def test_second_put_of_the_same_bytes_is_a_no_op(
-        self, blob_store: LocalBlobStore, tmp_path: Path
-    ) -> None:
-        digest = blob_store.put(b"same")
-        stat_before = (tmp_path / "blobs" / "raw" / digest).stat()
-        assert blob_store.put(b"same") == digest
-        stat_after = (tmp_path / "blobs" / "raw" / digest).stat()
-        assert stat_before.st_ino == stat_after.st_ino
-        assert stat_before.st_mtime_ns == stat_after.st_mtime_ns
-
-    def test_existing_file_with_the_wrong_bytes_is_corruption(
-        self, blob_store: LocalBlobStore, tmp_path: Path
-    ) -> None:
-        digest = sha(b"original")
-        target = tmp_path / "blobs" / "raw" / digest
-        target.parent.mkdir(parents=True)
-        target.write_bytes(b"tampered")
-        with pytest.raises(BlobCorruptionError):
-            blob_store.put(b"original")
-        with pytest.raises(BlobCorruptionError):
-            blob_store.get(digest)
-
-    def test_a_failed_publish_leaves_no_file_at_the_final_name(
-        self,
-        blob_store: LocalBlobStore,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        def crash(src: object, dst: object) -> None:
-            raise OSError("simulated crash before the file is published")
-
-        monkeypatch.setattr(os, "link", crash)
-        with pytest.raises(OSError, match="simulated crash"):
-            blob_store.put(b"never published")
-        assert not blob_store.exists(sha(b"never published"))
-        raw = tmp_path / "blobs" / "raw"
-        assert [p.name for p in raw.iterdir() if not p.name.startswith(".tmp-")] == []
-
-    def test_put_named_refuses_to_overwrite(self, blob_store: LocalBlobStore) -> None:
-        blob_store.put_named("snapshots/snap-0001/manifest.json", b"first")
-        with pytest.raises(BlobExistsError):
-            blob_store.put_named("snapshots/snap-0001/manifest.json", b"second")
-        assert blob_store.get_named("snapshots/snap-0001/manifest.json") == b"first"
-
-    def test_put_named_can_overwrite_when_asked(
-        self, blob_store: LocalBlobStore
-    ) -> None:
-        blob_store.put_named("snapshots/snap-0001/part.parquet", b"partial")
-        blob_store.put_named(
-            "snapshots/snap-0001/part.parquet", b"complete", overwrite=True
-        )
-        assert blob_store.get_named("snapshots/snap-0001/part.parquet") == b"complete"
-        assert blob_store.exists_named("snapshots/snap-0001/part.parquet")
-        assert not blob_store.exists_named("snapshots/snap-0002/part.parquet")
-
-    @pytest.mark.parametrize("name", ["/etc/passwd", "../outside", "a/../../b", ""])
-    def test_unsafe_names_are_refused(
-        self, blob_store: LocalBlobStore, name: str
-    ) -> None:
-        with pytest.raises(ValueError, match="unsafe"):
-            blob_store.put_named(name, b"x")
-
-    def test_non_hash_keys_are_refused(self, blob_store: LocalBlobStore) -> None:
-        with pytest.raises(ValueError, match="SHA-256"):
-            blob_store.exists("../../etc/passwd")
-
-
-class TestS3BlobStore:
-    """Driven by botocore's Stubber: offline, no AWS account (FR-027)."""
-
-    @staticmethod
-    def make() -> tuple[S3BlobStore, Stubber]:
-        import boto3
-
-        client = boto3.client(
-            "s3",
-            region_name="us-east-1",
-            aws_access_key_id="test",
-            aws_secret_access_key="test",
-        )
-        return S3BlobStore(client, "bucket", "prefix"), Stubber(client)
-
-    def test_put_sends_a_conditional_write(self) -> None:
-        store, stubber = self.make()
-        data = b"synthetic"
-        stubber.add_response(
-            "put_object",
-            {},
-            {
-                "Bucket": "bucket",
-                "Key": f"prefix/raw/{sha(data)}",
-                "Body": data,
-                "IfNoneMatch": "*",
-            },
-        )
-        with stubber:
-            assert store.put(data) == sha(data)
-        stubber.assert_no_pending_responses()
-
-    def test_a_412_means_it_exists_and_the_hash_is_rechecked(self) -> None:
-        store, stubber = self.make()
-        data = b"synthetic"
-        key = f"prefix/raw/{sha(data)}"
-        stubber.add_client_error(
-            "put_object", service_error_code="PreconditionFailed", http_status_code=412
-        )
-        stubber.add_response(
-            "get_object",
-            {"Body": _body(data)},
-            {"Bucket": "bucket", "Key": key},
-        )
-        with stubber:
-            assert store.put(data) == sha(data)
-        stubber.assert_no_pending_responses()
-
-    def test_a_412_over_wrong_bytes_is_corruption(self) -> None:
-        store, stubber = self.make()
-        data = b"synthetic"
-        stubber.add_client_error(
-            "put_object", service_error_code="PreconditionFailed", http_status_code=412
-        )
-        stubber.add_response(
-            "get_object",
-            {"Body": _body(b"tampered")},
-            {"Bucket": "bucket", "Key": f"prefix/raw/{sha(data)}"},
-        )
-        with stubber, pytest.raises(BlobCorruptionError):
-            store.put(data)
-
-    def test_put_named_412_raises_exists(self) -> None:
-        store, stubber = self.make()
-        stubber.add_client_error(
-            "put_object", service_error_code="PreconditionFailed", http_status_code=412
-        )
-        with stubber, pytest.raises(BlobExistsError):
-            store.put_named("snapshots/snap-0001/manifest.json", b"x")
-
-    def test_other_errors_propagate(self) -> None:
-        store, stubber = self.make()
-        stubber.add_client_error(
-            "put_object", service_error_code="AccessDenied", http_status_code=403
-        )
-        with stubber, pytest.raises(ClientError):
-            store.put(b"x")
-
-
-def _body(data: bytes) -> object:
-    from botocore.response import StreamingBody
-
-    return StreamingBody(io.BytesIO(data), len(data))
-
-
-# --- the store ---------------------------------------------------------------
-
-EXAM_ROW = {
-    "exam_id": "sat",
-    "name": "Synthetic SAT",
-    "body": "Synthetic Board",
-    "language": "en",
-    "domains": ["sat.exams.test"],
-    "publishes_keys": True,
-}
-
-
-def _count(conn: psycopg.Connection, table: str) -> int:
-    row = conn.execute(
-        sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
-    ).fetchone()
-    assert row is not None
-    return int(row[0])
-
-
-class TestStore:
-    def test_apply_schema_is_idempotent(self, test_dsn: str) -> None:
-        schema = f"t_{uuid.uuid4().hex}"
-        with psycopg.connect(test_dsn, autocommit=True) as admin:
-            admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-            try:
-                dsn = make_conninfo(test_dsn, options=f"-c search_path={schema}")
-                with psycopg.connect(dsn, autocommit=True) as conn:
-                    assert apply_schema(conn) is True
-                    assert apply_schema(conn) is False
-                    assert _count(conn, "exam_editions") == 0
-            finally:
-                admin.execute(
-                    sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
-                )
-
-    def test_second_writer_fails_fast_while_the_lock_is_held(
-        self, schema_dsn: str
-    ) -> None:
-        with (
-            psycopg.connect(schema_dsn, autocommit=True) as first,
-            psycopg.connect(schema_dsn, autocommit=True) as second,
-        ):
-            with (
-                write_lock(first),
-                pytest.raises(LockHeld, match="another pipeline command"),
-                write_lock(second),
-            ):
-                pytest.fail("the second writer must not run")
-            with write_lock(second):  # released when the first command ends
-                pass
-
-    def test_reconcile_reports_counts_and_is_idempotent(
-        self, db: psycopg.Connection
-    ) -> None:
-        rows = [
-            EXAM_ROW,
-            {**EXAM_ROW, "exam_id": "enem", "domains": ["enem.exams.test"]},
-        ]
-        first = reconcile(db, "exams", key=["exam_id"], scope={}, rows=rows)
-        assert first == Counts(inserted=2, updated=0, deleted=0)
-        assert reconcile(db, "exams", key=["exam_id"], scope={}, rows=rows) == Counts()
-
-        changed = [{**EXAM_ROW, "name": "Renamed"}, rows[1]]
-        assert reconcile(
-            db, "exams", key=["exam_id"], scope={}, rows=changed
-        ) == Counts(updated=1)
-        assert reconcile(
-            db, "exams", key=["exam_id"], scope={}, rows=changed[:1]
-        ) == Counts(deleted=1)
-        assert _count(db, "exams") == 1
-
-    def test_a_failure_midway_leaves_the_scope_unchanged(
-        self, db: psycopg.Connection
-    ) -> None:
-        reconcile(db, "exams", key=["exam_id"], scope={}, rows=[EXAM_ROW])
-        bad = [{**EXAM_ROW, "name": "Changed"}, {**EXAM_ROW, "exam_id": "bogus"}]
-        with pytest.raises(psycopg.errors.CheckViolation):
-            reconcile(db, "exams", key=["exam_id"], scope={}, rows=bad)
-        row = db.execute("SELECT name FROM exams WHERE exam_id = 'sat'").fetchone()
-        assert row == ("Synthetic SAT",)
-        assert _count(db, "exams") == 1
-
-    def test_retire_marks_instead_of_deleting_and_unretires(
-        self, db: psycopg.Connection, seed_edition: Callable[..., str]
-    ) -> None:
-        edition = seed_edition(db)
-
-        def question(item: str, order: int) -> dict[str, object]:
-            return {
-                "question_id": f"{edition}:s:{item}",
-                "canonical_question_id": f"cq_{item}",
-                "section": "s",
-                "item": item,
-                "print_order": order,
-                "stem": f"Synthetic stem {item}",
-                "choices": [{"label": "A", "text": "a"}, {"label": "B", "text": "b"}],
-                "has_figure": False,
-                "has_table": False,
-                "has_audio": False,
-                "is_free_response": False,
-                "stimulus_id": None,
-                "source_url": "https://sat.exams.test/paper.pdf",
-                "artifact_sha256": "ab" * 32,
-                "page": 1,
-                "pipeline_version": "abc123",
-                "content_hash": f"hash-{item}",
-            }
-
-        scope = {"edition_id": edition}
-        both = [question("1", 1), question("2", 2)]
-        args = {"key": ["question_id"], "scope": scope, "retire": True}
-        assert reconcile(db, "questions", rows=both, **args) == Counts(inserted=2)
-        assert reconcile(db, "questions", rows=both, **args) == Counts()
-
-        assert reconcile(db, "questions", rows=both[:1], **args) == Counts(deleted=1)
-        assert _count(db, "questions") == 2  # retired, not deleted
-        retired = db.execute(
-            "SELECT retired FROM questions WHERE item = '2'"
-        ).fetchone()
-        assert retired == (True,)
-        assert reconcile(db, "questions", rows=both[:1], **args) == Counts()
-
-        assert reconcile(db, "questions", rows=both, **args) == Counts(updated=1)
-        assert db.execute(
-            "SELECT retired FROM questions WHERE item = '2'"
-        ).fetchone() == (False,)
-
-    def test_insert_if_new_adds_nothing_the_second_time(
-        self, db: psycopg.Connection, seed_edition: Callable[..., str]
-    ) -> None:
-        reconcile(db, "exams", key=["exam_id"], scope={}, rows=[EXAM_ROW])
-        edition = seed_edition(db, year=2021)
-        source = {
-            "source_id": "src_0000000000000001",
-            "url": "https://sat.exams.test/a.pdf",
-            "domain": "sat.exams.test",
-            "discovery_method": "manual",
-            "edition_id": edition,
-            "decision": "approved",
-        }
-        assert insert_if_new(db, "sources", [source]) == 1
-        assert insert_if_new(db, "sources", [source]) == 0
-
-    def test_sql_injection_payloads_are_stored_and_scoped_as_data(
-        self, db: psycopg.Connection, seed_edition: Callable[..., str]
-    ) -> None:
-        edition = seed_edition(db)
-        payloads = ["x' OR 1=1 --", "x'); DROP TABLE questions; --"]
-        rows = [
-            {
-                "question_id": payload,
-                "canonical_question_id": "cq_1",
-                "section": "s",
-                "item": "1",
-                "print_order": index + 1,
-                "stem": "Synthetic stem",
-                "choices": [],
-                "has_figure": False,
-                "has_table": False,
-                "has_audio": False,
-                "is_free_response": True,
-                "stimulus_id": None,
-                "source_url": "https://sat.exams.test/paper.pdf",
-                "artifact_sha256": "ab" * 32,
-                "page": 1,
-                "pipeline_version": "abc123",
-                "content_hash": f"h{index}",
-            }
-            for index, payload in enumerate(payloads)
-        ]
-        reconcile(
-            db,
-            "questions",
-            key=["question_id"],
-            scope={"edition_id": edition},
-            rows=rows,
-        )
-        stored = {
-            r[0] for r in db.execute("SELECT question_id FROM questions").fetchall()
-        }
-        assert stored == set(payloads)
-
-        # A hostile scope value matches nothing and deletes nothing elsewhere.
-        counts = reconcile(
-            db,
-            "questions",
-            key=["question_id"],
-            scope={"edition_id": "x' OR 1=1 --"},
-            rows=[],
-        )
-        assert counts == Counts()
-        assert _count(db, "questions") == 2
-
-    def test_unknown_tables_and_columns_are_refused(
-        self, db: psycopg.Connection
-    ) -> None:
-        with pytest.raises(ValueError, match="unknown table"):
-            reconcile(db, "exams; DROP TABLE exams", key=["exam_id"], scope={}, rows=[])
-        with pytest.raises(ValueError, match="unknown columns"):
-            reconcile(
-                db, "exams", key=["exam_id"], scope={}, rows=[{**EXAM_ROW, "evil": "1"}]
-            )
-
-    def test_connection_errors_never_contain_the_dsn(self) -> None:
-        dsn = "postgresql://someone:s3cretpw@127.0.0.1:1/db?connect_timeout=2"
-        with pytest.raises(ConnectionFailed) as caught:
-            connect(dsn)
-        assert "s3cretpw" not in str(caught.value)
-        assert dsn not in str(caught.value)
-        assert caught.value.__cause__ is None
-
-    def test_redact_removes_passwords_in_both_dsn_styles(self) -> None:
-        assert "pw1" not in redact("failed pw1", "postgresql://u:pw1@h/db")
-        assert "pw2" not in redact("failed pw2", "host=h user=u password=pw2")
-
-    def test_summary_line_format(self) -> None:
-        summary = StageSummary(
-            "extract",
-            editions=12,
-            counts=Counts(inserted=840),
-            failures_added=3,
-        )
-        assert summary.line() == (
-            "extract: editions=12 inserted=840 updated=0 deleted=0 failures=+3/-0"
-        )
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SAT = "sat-2020-main"
 
 
 # --- the ledger --------------------------------------------------------------
@@ -519,68 +111,469 @@ class TestLedger:
         assert one.startswith("src_") and len(one) == 4 + 16
 
 
-# --- the command line --------------------------------------------------------
+# --- catalog validation (US1, FR-001..FR-006) --------------------------------
 
 
-class TestCli:
-    def test_unknown_command_is_a_usage_error(self) -> None:
-        assert cli.main(["mystery"]) == cli.EXIT_USAGE
+def problems(ds: DatasetBuilder) -> list[str]:
+    ds.save()
+    catalog = load_catalog(ds.catalog_path)
+    return validate_catalog(catalog, replay_ledger(read_ledger(ds.ledger_path)))
 
-    def test_help_exits_zero(self) -> None:
-        assert cli.main(["--help"]) == cli.EXIT_OK
 
-    def test_export_requires_a_snapshot(self) -> None:
-        assert cli.main(["export", "--exam", "enem", "--eligible"]) == cli.EXIT_USAGE
+def pending_source(ds: DatasetBuilder) -> str:
+    return ds.add_source(
+        "https://sat.exams.test/unreviewed", SAT, "statement", approve=False
+    )
 
-    def test_flags_work_after_the_command_name(self) -> None:
-        args = cli.build_parser().parse_args(
-            ["fetch", "--exam", "enem", "--ledger", "x.jsonl"]
-        )
-        assert (args.exam, args.ledger) == ("enem", "x.jsonl")
 
-    def test_unimplemented_commands_are_usage_errors(
-        self, monkeypatch: pytest.MonkeyPatch
+def drop_cell(ds: DatasetBuilder) -> None:
+    ds.catalog["editions"] = [
+        e for e in ds.catalog["editions"] if e["edition_id"] != SAT
+    ]
+
+
+def empty_evidence(ds: DatasetBuilder) -> None:
+    ds.edition(SAT)["evidence"] = []
+
+
+def cite_pending(ds: DatasetBuilder) -> None:
+    ds.edition(SAT)["evidence"] = [
+        {"type": "statement", "source_id": pending_source(ds)}
+    ]
+
+
+def cite_rejected(ds: DatasetBuilder) -> None:
+    source = ds.add_source("https://sat.exams.test/bad", SAT, "statement")
+    ds.review(source, SAT, "statement", approve=False, reason="not official")
+    ds.edition(SAT)["evidence"] = [{"type": "statement", "source_id": source}]
+
+
+def ingested_without_paper(ds: DatasetBuilder) -> None:
+    ds.make_ingested(SAT, paper=None)
+
+
+def ingested_without_key(ds: DatasetBuilder) -> None:
+    ds.make_ingested(SAT, key=None)
+
+
+def keys_not_published(ds: DatasetBuilder) -> None:
+    ds.catalog["exams"]["sat"]["publishes_keys"] = False
+
+
+def no_keys_evidence(ds: DatasetBuilder) -> None:
+    ds.catalog["exams"]["sat"]["keys_evidence"] = {}
+
+
+def index_absence_from_incomplete_seed(ds: DatasetBuilder) -> None:
+    page = ds.add_source("https://sat.exams.test/news", SAT, "index_page")
+    ds.edition(SAT)["evidence"] = [{"type": "index_absence", "source_id": page}]
+
+
+def blocked_without_reason(ds: DatasetBuilder) -> None:
+    ds.edition(SAT)["status"] = "blocked"
+
+
+def unknown_status(ds: DatasetBuilder) -> None:
+    ds.edition(SAT)["status"] = "unknown"
+
+
+def malformed_edition_id(ds: DatasetBuilder) -> None:
+    ds.edition(SAT)["edition_id"] = "sat_2020_main"
+
+
+def seventh_exam(ds: DatasetBuilder) -> None:
+    ds.catalog["exams"]["gre"] = dict(ds.catalog["exams"]["sat"])
+
+
+def evidence_of_unknown_type(ds: DatasetBuilder) -> None:
+    ds.edition(SAT)["evidence"][0]["type"] = "rumour"
+
+
+BREAKAGES: list[tuple[Callable[[DatasetBuilder], None], str]] = [
+    (drop_cell, "cell sat/2020 has no edition"),
+    (empty_evidence, "sat-2020-main: no evidence"),
+    (cite_pending, "not approved"),
+    (cite_rejected, "not approved"),
+    (ingested_without_paper, "no paper artifact"),
+    (ingested_without_key, "no key artifact"),
+    (keys_not_published, "exam sat: publishes_keys must be true"),
+    (no_keys_evidence, "exam sat: keys_evidence must cite an approved source"),
+    (index_absence_from_incomplete_seed, "complete_listing"),
+    (blocked_without_reason, "blocked edition needs status_reason"),
+    (unknown_status, "status must be one of"),
+    (malformed_edition_id, "edition_id must be"),
+    (seventh_exam, "unknown exam: gre"),
+    (evidence_of_unknown_type, "unknown evidence type"),
+]
+
+
+class TestCatalogValidation:
+    def test_a_complete_synthetic_catalog_is_valid(
+        self, dataset: DatasetBuilder
     ) -> None:
-        monkeypatch.setattr(cli, "HANDLERS", {})
-        assert cli.main(["rebuild", "--schema", "s"]) == cli.EXIT_USAGE
+        assert problems(dataset) == []
+
+    @pytest.mark.parametrize(("breakage", "expected"), BREAKAGES)
+    def test_each_broken_rule_is_reported(
+        self,
+        dataset: DatasetBuilder,
+        breakage: Callable[[DatasetBuilder], None],
+        expected: str,
+    ) -> None:
+        breakage(dataset)
+        found = problems(dataset)
+        assert any(expected in line for line in found), found
+
+    def test_all_problems_are_reported_at_once(self, dataset: DatasetBuilder) -> None:
+        drop_cell(dataset)
+        keys_not_published(dataset)
+        assert len(problems(dataset)) >= 2
 
     @pytest.mark.parametrize(
-        ("error", "code"),
+        ("breakage", "expected"),
+        [(drop_cell, "sat/2020"), (keys_not_published, "publishes_keys")],
+    )
+    def test_a_failed_validation_writes_nothing(
+        self,
+        db: psycopg.Connection,
+        dataset: DatasetBuilder,
+        breakage: Callable[[DatasetBuilder], None],
+        expected: str,
+    ) -> None:
+        breakage(dataset)
+        dataset.save()
+        with pytest.raises(CatalogError, match=expected):
+            run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        for table in ("exams", "exam_editions", "sources", "artifacts"):
+            assert count(db, table) == 0
+
+    def test_index_absence_from_a_complete_listing_is_valid_evidence(
+        self, dataset: DatasetBuilder
+    ) -> None:
+        page = dataset.add_source("https://sat.exams.test/archive", SAT, "index_page")
+        dataset.edition(SAT)["evidence"] = [
+            {"type": "index_absence", "source_id": page}
+        ]
+        assert problems(dataset) == []
+
+    def test_blocked_and_practice_editions_are_valid(
+        self, dataset: DatasetBuilder
+    ) -> None:
+        entry = dataset.edition(SAT)
+        entry.update(
+            {"status": "blocked", "status_reason": "robots", "kind": "practice"}
+        )
+        assert problems(dataset) == []
+
+    def test_a_provincial_gaokao_paper_needs_no_schema_change(
+        self, dataset: DatasetBuilder
+    ) -> None:
+        extra = dict(dataset.edition("gaokao-2020-main"))
+        extra.update({"edition_id": "gaokao-2020-beijing", "sitting": "beijing"})
+        dataset.catalog["editions"].append(extra)
+        assert problems(dataset) == []
+
+    def test_an_official_english_version_does_not_satisfy_the_paper_role(
+        self, dataset: DatasetBuilder
+    ) -> None:
+        dataset.make_ingested(SAT, paper=None)
+        english = dataset.add_source(
+            "https://sat.exams.test/en.pdf", SAT, "english", fetched=b"%PDF english"
+        )
+        assert english
+        assert any("no paper artifact" in line for line in problems(dataset))
+
+
+def count(conn: psycopg.Connection, table: str) -> int:
+    row = conn.execute(
+        sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
+    ).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+# --- the catalog stage (US1, FR-002, FR-009, FR-019) -------------------------
+
+
+class TestCatalogStage:
+    def test_it_writes_the_exams_editions_and_sources(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        summary = run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        assert count(db, "exams") == 6
+        assert count(db, "exam_editions") == 66
+        assert count(db, "sources") == 6 + 66
+        assert count(db, "artifacts") == 0
+        assert summary.counts.inserted == 6 + 66 + 72
+
+    def test_a_second_run_changes_nothing(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        again = run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        assert again.counts == Counts()
+        assert "inserted=0 updated=0 deleted=0" in again.line()
+
+    def test_ingesting_one_edition_writes_only_that_edition(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        dataset.make_ingested(SAT)
+        dataset.save()
+        summary = run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        assert summary.counts.updated == 1  # only the edition row
+        assert summary.counts.inserted == 3 + 2  # three sources, two artifacts
+        roles = db.execute(
+            "SELECT role FROM artifacts WHERE edition_id = %s ORDER BY role", (SAT,)
+        ).fetchall()
+        assert roles == [("key",), ("paper",)]
+
+    def test_blocking_an_edition_updates_one_row(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        dataset.edition("csat-2018-main").update(
+            {"status": "blocked", "status_reason": "login_required"}
+        )
+        dataset.save()
+        assert run_catalog(
+            db, dataset.catalog_path, dataset.ledger_path
+        ).counts == Counts(updated=1)
+
+    def test_the_latest_review_and_fetch_decide_the_source_state(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        source = dataset.add_source(
+            "https://sat.exams.test/x.pdf", SAT, "paper", fetched=b"%PDF one"
+        )
+        dataset.review(source, SAT, "paper", approve=False, reason="wrong file")
+        dataset.save()
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        row = db.execute(
+            "SELECT decision, decision_reason, fetch_outcome "
+            "FROM sources WHERE source_id = %s",
+            (source,),
+        ).fetchone()
+        assert row == ("rejected", "wrong file", "fetched")
+        assert count(db, "artifacts") == 0  # a rejected source yields no artifact
+
+    def test_one_key_file_can_serve_two_editions(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        key = dataset.add_source(
+            "https://sat.exams.test/keys.pdf", SAT, "key", fetched=b"%PDF shared key"
+        )
+        dataset.review(key, "sat-2021-main", "key")
+        dataset.save()
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        rows = db.execute(
+            "SELECT edition_id FROM artifacts WHERE role = 'key' ORDER BY edition_id"
+        ).fetchall()
+        assert rows == [(SAT,), ("sat-2021-main",)]
+        assert db.execute(
+            "SELECT count(DISTINCT sha256) FROM artifacts"
+        ).fetchone() == (1,)
+
+    def test_changed_content_at_the_same_url_keeps_both_files(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        source = dataset.add_source(
+            "https://sat.exams.test/p.pdf", SAT, "paper", fetched=b"%PDF version one"
+        )
+        dataset.fetch_event(source, b"%PDF version two", "application/pdf")
+        dataset.save()
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        assert count(db, "artifacts") == 2
+
+    def test_an_official_english_version_adds_an_artifact_not_an_edition(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        dataset.add_source(
+            "https://sat.exams.test/en.pdf", SAT, "english", fetched=b"%PDF english"
+        )
+        dataset.save()
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        assert count(db, "exam_editions") == 66
+        assert db.execute("SELECT role FROM artifacts").fetchall() == [("english",)]
+
+    def test_a_provincial_paper_is_just_another_edition(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        extra = dict(dataset.edition("gaokao-2020-main"))
+        extra.update({"edition_id": "gaokao-2020-beijing", "sitting": "beijing"})
+        dataset.catalog["editions"].append(extra)
+        dataset.save()
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        assert count(db, "exam_editions") == 67
+        assert db.execute(
+            "SELECT count(DISTINCT (exam_id, year)) FROM exam_editions"
+        ).fetchone() == (66,)
+
+    def test_a_duplicate_ledger_seq_is_refused_before_anything_is_written(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        lines = dataset.ledger_path.read_text(encoding="utf-8").splitlines()
+        dataset.ledger_path.write_text(
+            "\n".join([*lines, lines[-1]]) + "\n", encoding="utf-8"
+        )
+        with pytest.raises(LedgerError):
+            run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        assert count(db, "exams") == 0
+
+
+# --- review (US1, FR-007) -----------------------------------------------------
+
+
+def state_of(ds: DatasetBuilder, source_id: str):
+    return replay_ledger(read_ledger(ds.ledger_path)).sources[source_id]
+
+
+class TestReview:
+    def candidate(self, ds: DatasetBuilder) -> str:
+        return ds.add_source(
+            "https://sat.exams.test/c.pdf", SAT, "paper", approve=False
+        )
+
+    def test_approve_records_edition_and_role(self, dataset: DatasetBuilder) -> None:
+        source = self.candidate(dataset)
+        assert review(
+            dataset.ledger_path,
+            source,
+            approve=True,
+            edition_id=SAT,
+            role="key",
+            published=None,
+            reason=None,
+            at=dataset.at(),
+        )
+        state = state_of(dataset, source)
+        assert state.decision == "approved"
+        assert state.approvals[SAT].role == "key"
+
+    @pytest.mark.parametrize(
+        ("approve", "edition_id", "role", "published", "reason", "message"),
         [
-            (CatalogError("bad catalog"), cli.EXIT_INTEGRITY),
-            (LedgerError("bad ledger"), cli.EXIT_INTEGRITY),
-            (LockHeld("another pipeline command is running"), cli.EXIT_LOCKED),
-            (ConnectionFailed("cannot connect"), cli.EXIT_ERROR),
-            (RuntimeError("boom"), cli.EXIT_ERROR),
-            (cli.UsageError("PIPELINE_DSN is not set"), cli.EXIT_USAGE),
+            (True, None, "paper", None, None, "edition"),
+            (True, SAT, None, None, None, "role"),
+            (True, SAT, "mystery", None, None, "role"),
+            (True, SAT, "key_erratum", None, None, "published"),
+            (True, SAT, "key", "01/02/2020", None, "ISO"),
+            (False, None, None, None, None, "reason"),
         ],
     )
-    def test_errors_map_to_the_documented_exit_codes(
+    def test_invalid_reviews_are_refused_and_write_nothing(
         self,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
-        error: Exception,
-        code: int,
+        dataset: DatasetBuilder,
+        approve: bool,
+        edition_id: str | None,
+        role: str | None,
+        published: str | None,
+        reason: str | None,
+        message: str,
     ) -> None:
-        def raiser(args: object) -> int:
-            raise error
+        source = self.candidate(dataset)
+        before = dataset.ledger_path.read_bytes()
+        with pytest.raises(ValueError, match=message):
+            review(
+                dataset.ledger_path,
+                source,
+                approve=approve,
+                edition_id=edition_id,
+                role=role,
+                published=published,
+                reason=reason,
+                at=dataset.at(),
+            )
+        assert dataset.ledger_path.read_bytes() == before
 
-        monkeypatch.setattr(cli, "HANDLERS", {"catalog": raiser})
-        assert cli.main(["catalog"]) == code
-        assert str(error) in capsys.readouterr().err
+    def test_an_unknown_candidate_is_refused(self, dataset: DatasetBuilder) -> None:
+        with pytest.raises(ValueError, match="unknown candidate"):
+            review(
+                dataset.ledger_path,
+                "src_nope",
+                approve=False,
+                edition_id=None,
+                role=None,
+                published=None,
+                reason="x",
+                at=dataset.at(),
+            )
 
-    def test_unexpected_errors_never_print_the_dsn(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
+    def test_the_latest_review_wins(self, dataset: DatasetBuilder) -> None:
+        source = self.candidate(dataset)
+        args = {"edition_id": SAT, "role": "paper", "published": None, "reason": None}
+        review(dataset.ledger_path, source, approve=True, at=dataset.at(), **args)
+        review(
+            dataset.ledger_path,
+            source,
+            approve=False,
+            edition_id=None,
+            role=None,
+            published=None,
+            reason="changed my mind",
+            at=dataset.at(),
+        )
+        assert state_of(dataset, source).decision == "rejected"
+        review(dataset.ledger_path, source, approve=True, at=dataset.at(), **args)
+        assert state_of(dataset, source).decision == "approved"
+
+    def test_repeating_an_identical_review_appends_nothing(
+        self, dataset: DatasetBuilder
     ) -> None:
-        dsn = "postgresql://someone:s3cretpw@db.test/x"
-        monkeypatch.setenv("PIPELINE_DSN", dsn)
+        source = self.candidate(dataset)
+        args = {"edition_id": SAT, "role": "paper", "published": None, "reason": None}
+        assert review(
+            dataset.ledger_path, source, approve=True, at=dataset.at(), **args
+        )
+        size = dataset.ledger_path.stat().st_size
+        assert not review(
+            dataset.ledger_path, source, approve=True, at=dataset.at(), **args
+        )
+        assert dataset.ledger_path.stat().st_size == size
 
-        def raiser(args: object) -> int:
-            raise RuntimeError(f"failed against {dsn}")
+    def test_approving_for_a_second_edition_is_a_new_review(
+        self, dataset: DatasetBuilder
+    ) -> None:
+        source = self.candidate(dataset)
+        for edition in (SAT, "sat-2021-main"):
+            assert review(
+                dataset.ledger_path,
+                source,
+                approve=True,
+                edition_id=edition,
+                role="key",
+                published=None,
+                reason=None,
+                at=dataset.at(),
+            )
+        assert set(state_of(dataset, source).approvals) == {SAT, "sat-2021-main"}
 
-        monkeypatch.setattr(cli, "HANDLERS", {"catalog": raiser})
-        assert cli.main(["catalog"]) == cli.EXIT_ERROR
-        err = capsys.readouterr().err
-        assert "s3cretpw" not in err and dsn not in err
+
+# --- the committed ledger only grows (FR-009, contracts/manifests.md) --------
+
+
+class TestCommittedLedger:
+    def test_only_grows_since_the_merge_base(self) -> None:
+        base = subprocess.run(
+            ["git", "merge-base", "HEAD", "origin/main"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if base.returncode != 0:
+            if os.environ.get("CI") == "true":
+                pytest.fail(
+                    "origin/main is unreachable; the CI checkout must be full depth"
+                )
+            pytest.skip("origin/main is not available locally")
+        shown = subprocess.run(
+            ["git", "show", f"{base.stdout.strip()}:pipeline/ledger.jsonl"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=False,
+        )
+        old = shown.stdout if shown.returncode == 0 else b""
+        new = (REPO_ROOT / "pipeline" / "ledger.jsonl").read_bytes()
+        assert ledger_is_prefix_extension(old, new)
