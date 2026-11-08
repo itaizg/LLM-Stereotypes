@@ -1,10 +1,14 @@
 name: CI
 
-# Every job here runs on the core dependency set only (pyyaml/numpy/scipy/
-# matplotlib) against MockBackend -- no GPU, no model weights, no network,
-# no API keys. That is a deliberate property of the harness, not a CI
-# limitation: see the "model" extra in pyproject.toml for what local
-# inference needs.
+# The harness jobs (test, harness-smoke) run on the core dependency set only
+# (pyyaml/numpy/scipy/matplotlib) against MockBackend -- no GPU, no model
+# weights, no network, no API keys. That is a deliberate property of the
+# harness, not a CI limitation: see the "model" extra in pyproject.toml for
+# what local inference needs.
+#
+# The "pipeline" job adds the optional pipeline extra and a local Postgres
+# service container (loopback only) to test the exam-dataset pipeline. It
+# still needs no network, cloud account, or API key.
 
 on:
   push:
@@ -53,8 +57,48 @@ jobs:
           uv sync --locked --extra dev
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
+      # tests/pipeline needs the pipeline extra and Postgres, so it has its own
+      # job below; the core job proves the harness stands alone.
       - name: pytest
-        run: pytest -q
+        run: pytest -q --ignore=tests/pipeline
+
+  pipeline:
+    name: pipeline pytest
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A throwaway database on the job's own service container: no secret.
+      PIPELINE_TEST_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      # Full history: the ledger test compares pipeline/ledger.jsonl with its
+      # version at the merge-base with origin/main (research R15).
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install core + dev + pipeline dependencies
+        run: |
+          uv sync --locked --extra dev --extra pipeline
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: pytest (pipeline)
+        run: pytest tests/pipeline -q
 
   harness-smoke:
     name: harness CLI end-to-end

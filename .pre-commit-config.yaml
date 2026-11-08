@@ -8,12 +8,25 @@ repos:
   # ty resolves imports against the project environment (numpy, scipy,
   # pytest, ...), so it runs through uv in the locked project venv rather
   # than an isolated hook env. It checks the whole project, not just staged
-  # files, because a signature change breaks callers in unchanged files.
+  # files, because a signature change breaks callers in unchanged files. The
+  # pipeline extra is included so pipeline/ imports (psycopg, httpx, ...)
+  # resolve; the harness itself still never imports them.
   - repo: local
     hooks:
       - id: ty
         name: ty check
-        entry: uv run --locked --extra dev ty check
+        entry: uv run --locked --extra dev --extra pipeline ty check
         language: system
         types: [python]
         pass_filenames: false
+
+      # FR-025/FR-026: fails if a tracked file outside the sample allowlist
+      # holds corpus question text (checked by fingerprint, research R13). It
+      # needs only the core install (stdlib + PyYAML), so it runs in the lint
+      # job without the pipeline extra's heavier dependencies resolving first.
+      - id: corpus-guard
+        name: corpus guard
+        entry: uv run --locked python -m pipeline.corpus
+        language: system
+        pass_filenames: false
+        always_run: true

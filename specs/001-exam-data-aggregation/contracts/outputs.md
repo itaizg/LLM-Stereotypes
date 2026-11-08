@@ -6,8 +6,8 @@
 
 | File | Content |
 |------|---------|
-| `manifest.json` | `{version, git_sha, catalog_sha256, ledger_sha256, row_counts: {table: n}, files: {name: sha256}}` |
-| `exam_editions.parquet`, `sources.parquet`, `artifacts.parquet` | the catalog dataset |
+| `manifest.json` | `{version, git_sha, catalog_sha256, ledger_sha256, content_sha256, row_counts: {table: n}, files: {name: sha256}}` |
+| `exams.parquet`, `exam_editions.parquet`, `sources.parquet`, `artifacts.parquet` | the catalog dataset |
 | `questions.parquet`, `stimuli.parquet`, `answer_keys.parquet`, `translations.parquet`, `extraction_failures.parquet` | the questions dataset |
 | `exam_checks.parquet` | the hand-check event rows behind the status below |
 | `questions_flat.parquet` | the materialized view; the only source of question data for `export` (FR-017, FR-023) |
@@ -27,7 +27,9 @@ is written leaves an unpublished version, which the next run reuses and overwrit
    (`ingested`/`not_released`/`blocked`) and kind (`administered`/`practice`), with
    question counts.
 2. Known gaps: `not_released` and `blocked` editions with reasons; Gaokao provincial
-   papers (not yet catalogued, FR-002); failure counts by reason code.
+   papers (not yet catalogued, FR-002); official versions in languages other than the
+   original and English, e.g. the Psychometric exam's Arabic and Russian versions (not
+   catalogued, research R10); failure counts by reason code.
 3. Verification: per-exam hand-check status, seed, and result. Per-language translation
    review score distribution, reported as observed with no threshold (SC-004).
 4. Translation provenance: MT model, reported revision, prompt hash, and the share of

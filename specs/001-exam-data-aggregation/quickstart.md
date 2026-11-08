@@ -87,7 +87,8 @@ Expected:
 - A question that disappears on re-extraction is retired, not deleted, and its key and
   translation rows remain. Items numbered 2 and 10 export in printed order.
 - Half the synthetic items get `official` English and the rest get `mt`, with model,
-  revision, and prompt hash recorded. A fake translator that returns empty text produces
+  revision, and prompt hash recorded. The official English version is an `english`
+  artifact of the original edition: it adds no edition and no `questions` rows. A fake translator that returns empty text produces
   `mt_empty_output`.
 - Running each stage a second time prints `inserted=0 updated=0 deleted=0`.
 
@@ -99,7 +100,9 @@ uv run pytest tests/pipeline/test_publish.py -q
 
 Expected:
 - The snapshot's manifest row counts equal the Parquet counts and the live counts for every
-  table.
+  table. A second `snapshot` with nothing changed prints `snapshot: unchanged` and
+  publishes no new version. Any `integrity_violations` row (e.g. an ingested edition with
+  no questions and no failure) makes `snapshot` exit 3.
 - Exporting the same exam from one snapshot twice gives byte-identical files that carry the
   snapshot version.
 - After a key correction and a new snapshot, the new export shows only the new key.

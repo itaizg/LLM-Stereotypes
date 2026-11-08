@@ -1,8 +1,24 @@
 <!--
 Sync Impact Report
 ==================
-Version change: (unfilled template) → 1.0.0
-Bump rationale: first ratified constitution; all principles and sections are new.
+Version change: 1.0.0 → 1.1.0
+Bump rationale: MINOR. A project constraint is removed (the ban on heavyweight
+  frameworks, obsolete by author decision on 2026-11-04) and guidance is expanded to cover
+  the dataset pipeline package. No principle or gate is removed or redefined. The bump
+  level is confirmed in the amendment pull request (spec 001, FR-032).
+
+Modified in 1.1.0 (spec 001-exam-data-aggregation, amendment A1):
+  - Principle I: path list now includes `pipeline/`.
+  - Principle III: the test rule now covers `pipeline/`; loopback connections to a
+    locally run database are explicitly permitted.
+  - Project Constraints → Dependencies: removed "Heavyweight frameworks (LangChain,
+    MLflow, W&B) MUST NOT be added."; added that dataset-pipeline packages stay in the
+    optional `pipeline` extra. Python 3.13, `uv`, `uv.lock`, `uv sync --locked`, the
+    `model` extra and the GPU-free core are unchanged.
+  - Follow-up in the same change: CLAUDE.md drops its matching bullet and rewords
+    differentiator #2 (FR-032, FR-033).
+
+Version 1.0.0 (2026-11-03) adopted the following:
 
 Principles (template slot → adopted title):
   PRINCIPLE_1 → I. Typed Code, Checked by ty
@@ -35,8 +51,8 @@ Follow-up TODOs (repository changes, not made by this amendment):
 
 ### I. Typed Code, Checked by ty
 
-- Every function, method, and module-level variable in `harness/`, `data/`, and `tests/`
-  MUST carry type annotations, including return types (`-> None` included).
+- Every function, method, and module-level variable in `harness/`, `pipeline/`, `data/`,
+  and `tests/` MUST carry type annotations, including return types (`-> None` included).
 - `ty check` MUST pass with zero errors on every commit to `main`. New `# type: ignore` or
   `# ty: ignore` comments MUST name the specific rule and give a one-line reason.
 - `Any` is permitted only at true trust boundaries (parsed YAML/JSON, third-party responses)
@@ -63,8 +79,10 @@ Rationale: one tool, one config file, zero style debate in review.
 
 - All tests MUST use pytest and live under `tests/`.
 - Tests MUST run with no GPU, no model weights, no network, and no API keys. Model behavior
-  is supplied by the deterministic `MockBackend`.
-- Every behavior change in `harness/` MUST ship with a test that fails without the change.
+  is supplied by the deterministic `MockBackend`. Loopback connections to a locally run
+  database are permitted; anything beyond the machine is not.
+- Every behavior change in `harness/` or `pipeline/` MUST ship with a test that fails
+  without the change.
   Bug fixes MUST include a regression test.
 - Statistics code (`stats.py`) MUST be tested against cases with known answers
   (hand-computed values or an injected effect that the code must detect), not only for
@@ -142,9 +160,9 @@ how that claim stays true as the code grows.
   distinguishable from noise." Every reported number carries a CI; pairwise comparisons use
   Holm correction.
 - Dependencies: Python 3.13, managed with `uv`, pinned in `uv.lock`; CI installs with
-  `uv sync --locked`. Heavyweight frameworks
-  (LangChain, MLflow, W&B) MUST NOT be added. Model-inference packages stay in the optional
-  `model` extra; the core install stays GPU-free.
+  `uv sync --locked`. Model-inference packages stay in the optional `model` extra, and
+  dataset-pipeline packages stay in the optional `pipeline` extra; the core install stays
+  GPU-free.
 - Device handling: detect MPS → CUDA → CPU at runtime; never hardcode a device. Record
   device and backend in every run manifest.
 - Secrets: environment variables only; never committed, never printed or logged.
@@ -167,4 +185,4 @@ how that claim stays true as the code grows.
 - Spec Kit plans (`/speckit-plan`) MUST include a Constitution Check that evaluates the
   design against these principles before implementation begins.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-03
+**Version**: 1.1.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-04
