@@ -94,7 +94,7 @@ pipeline write lock is held (research R16), so `seq` is strictly increasing with
 |--------|--------|
 | `candidate` | `source_id`, `url`, `domain`, `method` (`index_crawl`\|`manual`), `found_on`, `auto_decision` (`rejected` + reason when off-allowlist, else null) |
 | `review` | `source_id`, `decision` (`approved`\|`rejected`), `edition_id`, `role`, `published`, `reason` |
-| `fetch` | `source_id`, `outcome`, `sha256` (when fetched), `media_type`, `bytes`, `http_status` |
+| `fetch` | `source_id`, `outcome`, `sha256` (when fetched), `media_type`, `bytes`, `http_status`, and when fetched `etag` and `last_modified` (the response's validators, used for conditional refresh; absent on older lines) |
 | `handcheck` | `exam_id`, `seed`, `items: [{question_id, content_hash, key_labels, stem_ok, choices_ok, key_ok, forced}]` (`forced` marks a previously failed question added to a recovery sample, research R14) |
 | `translation_review` | `language`, `seed`, `items: [{subject_id, translation_id, score}]` (score 0–3) |
 

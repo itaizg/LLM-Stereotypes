@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from itertools import pairwise
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar
 
+import httpx
 import pytest
 
 from pipeline.acquire import (
-    USER_AGENT,
     DiscoverSummary,
     FetchSummary,
     add_manual_url,
@@ -23,7 +25,14 @@ from pipeline.acquire import (
     fetch,
 )
 from pipeline.blobs import LocalBlobStore
-from pipeline.manifests import SourceState, load_catalog, read_ledger, replay_ledger
+from pipeline.manifests import (
+    SourceState,
+    load_catalog,
+    read_ledger,
+    replay_ledger,
+    source_id_for,
+)
+from pipeline.web import USER_AGENT
 
 if TYPE_CHECKING:
     from conftest import DatasetBuilder, FakeClock, Web
@@ -539,3 +548,154 @@ class TestFetch:
         dataset.save()
         run_fetch(dataset, web, blob_store, clock)
         assert marker not in dataset.ledger_path.read_text(encoding="utf-8")
+
+
+class TestConditionalRefresh:
+    """A refresh asks "has it changed?" instead of downloading again (research R6)."""
+
+    URL = f"https://{HOST}/p.pdf"
+    VALIDATORS: ClassVar[dict[str, str]] = {
+        "etag": '"v1"',
+        "last-modified": "Wed, 21 Oct 2026 07:28:00 GMT",
+    }
+
+    def first_fetch(
+        self,
+        ds: DatasetBuilder,
+        web: Web,
+        blobs: LocalBlobStore,
+        clock: FakeClock,
+    ) -> str:
+        source = ds.add_source(self.URL, SAT, "paper")
+        web.add(self.URL, b"%PDF v1", headers=self.VALIDATORS)
+        ds.save()
+        run_fetch(ds, web, blobs, clock)
+        return source
+
+    def last_request_headers(self, web: Web) -> httpx.Headers:
+        return [r for r in web.requests if str(r.url) == self.URL][-1].headers
+
+    def test_a_fetch_stores_the_validators(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        source = self.first_fetch(dataset, web, blob_store, clock)
+        record = sources(dataset)[source].fetches[-1]
+        assert (record.etag, record.last_modified) == (
+            '"v1"',
+            "Wed, 21 Oct 2026 07:28:00 GMT",
+        )
+
+    def test_a_refresh_is_conditional_and_a_304_appends_nothing(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        source = self.first_fetch(dataset, web, blob_store, clock)
+        before = dataset.ledger_path.read_bytes()
+        web.add(self.URL, status=304)
+        summary = run_fetch(
+            dataset, web, blob_store, clock, refresh=True, source_ids=[source]
+        )
+        sent = self.last_request_headers(web)
+        assert sent["if-none-match"] == '"v1"'
+        assert sent["if-modified-since"] == "Wed, 21 Oct 2026 07:28:00 GMT"
+        assert dataset.ledger_path.read_bytes() == before
+        assert (summary.unchanged, summary.errors) == (1, 0)
+
+    def test_without_the_cached_file_the_refresh_is_unconditional(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+        tmp_path: Path,
+    ) -> None:
+        self.first_fetch(dataset, web, blob_store, clock)
+        empty = LocalBlobStore(tmp_path / "elsewhere")
+        run_fetch(dataset, web, empty, clock, refresh=True)
+        assert "if-none-match" not in self.last_request_headers(web)
+        assert empty.exists(sha(b"%PDF v1"))
+
+    def test_a_304_after_a_failed_refresh_restores_the_fetched_state(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        source = self.first_fetch(dataset, web, blob_store, clock)
+        web.add(self.URL, status=500)
+        run_fetch(dataset, web, blob_store, clock, refresh=True)
+        assert sources(dataset)[source].fetch_outcome == "http_error"
+        web.add(self.URL, status=304)
+        run_fetch(dataset, web, blob_store, clock, refresh=True)
+        record = sources(dataset)[source].fetches[-1]
+        assert (record.outcome, record.sha256, record.size) == (
+            "fetched",
+            sha(b"%PDF v1"),
+            7,
+        )
+        assert record.etag == '"v1"'
+
+    def test_older_fetch_events_without_validators_still_replay(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        source = dataset.add_source(self.URL, SAT, "paper")
+        web.add(self.URL, b"%PDF v1")
+        dataset.save()
+        run_fetch(dataset, web, blob_store, clock)
+        lines = dataset.ledger_path.read_text(encoding="utf-8").splitlines()
+        stripped = [
+            json.dumps(
+                {
+                    k: v
+                    for k, v in json.loads(line).items()
+                    if k not in {"etag", "last_modified"}
+                }
+            )
+            for line in lines
+        ]
+        dataset.ledger_path.write_text("\n".join(stripped) + "\n", encoding="utf-8")
+        record = sources(dataset)[source].fetches[-1]
+        assert (record.outcome, record.etag, record.last_modified) == (
+            "fetched",
+            None,
+            None,
+        )
+
+    def test_an_unchanged_seed_is_re_read_from_its_stored_copy(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        web.add(ARCHIVE, html("/tests/2020.pdf"), headers={"etag": '"seed"'})
+        dataset.save()
+        run_discover(dataset, web, blob_store, clock)
+        # Forget a link it found, as if an older extractor had missed it.
+        forgotten = source_id_for(f"https://{HOST}/tests/2020.pdf")
+        kept = [
+            line
+            for line in dataset.ledger_path.read_text(encoding="utf-8").splitlines()
+            if json.loads(line).get("source_id") != forgotten
+        ]
+        dataset.ledger_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        assert forgotten not in sources(dataset)
+        web.add(ARCHIVE, status=304)
+        summary = run_discover(dataset, web, blob_store, clock)
+        sent = [r for r in web.requests if str(r.url) == ARCHIVE][-1].headers
+        assert sent["if-none-match"] == '"seed"'
+        assert summary.seeds_fetched == 1
+        found = {s.url for s in sources(dataset).values()}
+        assert f"https://{HOST}/tests/2020.pdf" in found

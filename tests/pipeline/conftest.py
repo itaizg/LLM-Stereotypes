@@ -484,17 +484,22 @@ def dataset(tmp_path: Path) -> DatasetBuilder:
 # --- an offline web ----------------------------------------------------------
 
 
+Reply = tuple[int, dict[str, str], bytes] | httpx.TransportError
+
+
 class Web:
     """An in-memory website behind ``httpx.MockTransport`` (no network, FR-027).
 
     ``calls`` records ``(url, virtual time)`` for every request, so tests can
-    assert both what was never requested and how far apart requests were.
+    assert both what was never requested and how far apart requests were;
+    ``requests`` keeps the requests themselves, for their headers.
     """
 
     def __init__(self, clock: FakeClock) -> None:
         self._clock = clock
-        self._routes: dict[str, tuple[int, dict[str, str], bytes]] = {}
+        self._routes: dict[str, list[Reply]] = {}
         self.calls: list[tuple[str, float]] = []
+        self.requests: list[httpx.Request] = []
 
     def add(
         self,
@@ -505,15 +510,31 @@ class Web:
         headers: dict[str, str] | None = None,
     ) -> None:
         data = body.encode() if isinstance(body, str) else body
-        self._routes[url] = (status, headers or {}, data)
+        self._routes[url] = [(status, headers or {}, data)]
+
+    def add_sequence(self, url: str, *replies: Reply) -> None:
+        """Answer successive requests in turn; the last reply then repeats.
+
+        A reply is ``(status, headers, body)`` or a transport error to raise,
+        such as ``httpx.ReadTimeout``.
+        """
+        self._routes[url] = list(replies)
 
     def urls(self) -> list[str]:
         return [url for url, _ in self.calls]
 
+    def times(self, url: str) -> list[float]:
+        return [t for u, t in self.calls if u == url]
+
     def _handle(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         self.calls.append((url, self._clock.now()))
-        status, headers, body = self._routes.get(url, (404, {}, b""))
+        self.requests.append(request)
+        replies = self._routes.get(url) or [(404, {}, b"")]
+        reply = replies.pop(0) if len(replies) > 1 else replies[0]
+        if isinstance(reply, httpx.TransportError):
+            raise reply
+        status, headers, body = reply
         return httpx.Response(status, headers=headers, content=body)
 
     def client(self) -> httpx.AsyncClient:

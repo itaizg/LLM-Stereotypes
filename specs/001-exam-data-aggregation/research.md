@@ -10,7 +10,7 @@ Clarifications, planning session).
   approval (FR-007):
   1. `index_crawl`: fetch the official past-paper listing pages and `sitemap.xml` that
      `catalog.yaml` lists for each exam (seed URLs, authored and committed by the
-     maintainer), then extract links with `html.parser`. Links on a non-allowlisted domain
+     maintainer), then extract links with BeautifulSoup (see "Link extraction" below). Links on a non-allowlisted domain
      are recorded as `rejected` candidates automatically (spec edge case). Seed pages are
      stored as blobs. A paper missing from a page is "not found", **not** "not released":
      a gap in a listing may just be an incomplete page. It counts as `not_released`
@@ -117,10 +117,40 @@ Clarifications, planning session).
   `refused_domain`, `refused_robots`, `login_required` (401, 403, or a redirect to a host
   outside the allowlist), `not_approved`, and `http_error`. Responses that redirect
   off-allowlist are not followed.
+- **Backoff**: a 429 or 503, or a transport error (timeout, refused connection), is
+  retried at most twice. The wait is the server's `Retry-After` when it gives one
+  (seconds, or an HTTP-date measured against the response's own `Date` header, so no
+  wall-clock read), otherwise twice the rate-limit interval, doubling per attempt. The
+  pause applies to the whole host, not just the URL. A `Retry-After` over 300 s ends the
+  attempt as `http_error` at once rather than sleeping for hours; the next run retries.
+  A 429 on robots.txt is treated like a 5xx: disallow everything (RFC 9309 asks crawlers
+  to be conservative when robots.txt is unreachable).
+- **Timeout**: explicit, 60 s per read and 10 s to connect. httpx's default (5 s for every
+  phase) is too short for a large PDF from a slow government server.
+- **Conditional refresh**: a successful `fetch` event stores the response's `ETag` and
+  `Last-Modified`. A later request for the same source sends `If-None-Match` and
+  `If-Modified-Since`, but only if the earlier bytes are still in the blob store, since a
+  304 is useless without them. A 304 counts as "fetched, unchanged": it reuses the stored
+  blob and appends no event unless the source's latest event was a failure. `discover`
+  re-reads an unchanged seed from its blob, so an improved link extractor still sees the
+  page. Known limit: an ETag that changes while the bytes do not appends no event
+  (FR-019), so the stored validator can go stale; the cost is one full 200 response.
+- **Link extraction**: BeautifulSoup over `html.parser`, collecting `a`/`area` `href` and
+  `iframe`/`frame` `src`, resolved against `<base href>`. Pages are decoded the way a
+  browser does: the HTTP charset, then the `<meta>` declaration, then `UnicodeDammit`'s
+  guess. Legacy labels map to their WHATWG supersets (`euc-kr` → CP949, `gb2312`/`gbk` →
+  GB18030, `shift_jis` → CP932), because KICE, Gaokao, and DNC pages use characters the
+  narrow codecs lack. Assuming UTF-8 garbled non-ASCII file names. Links that a page
+  builds with JavaScript are not seen; a headless browser would be added only if a real
+  seed needs one.
 - **Rationale**: This meets FR-008 literally, makes every refusal auditable, and keeps the
-  network out of tests through `httpx.MockTransport`.
+  network out of tests through `httpx.MockTransport`. Backoff, timeouts, and conditional
+  requests are standard crawler etiquette: they keep load on the official sites low.
 - **Alternatives considered**: `aiohttp` (equivalent, but httpx's MockTransport makes
-  offline tests simpler); `curl` (the brief allows it only for recorded debugging).
+  offline tests simpler); `curl` (the brief allows it only for recorded debugging);
+  standard-library `html.parser` with hand-written charset sniffing (no dependency, but
+  more code of our own than the well-known `UnicodeDammit`); `lxml` (faster, but a C
+  dependency for a crawl of about ten index pages).
 
 ## R7. Identifiers, hashes, normalization
 

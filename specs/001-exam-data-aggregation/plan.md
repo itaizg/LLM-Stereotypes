@@ -40,11 +40,11 @@ five or more choices are exported, and a harness TODO covers scoring them.
 **Primary Dependencies**: All of these go in a new optional `pipeline` extra; the core
 install is unchanged (FR-030).
 `psycopg[binary]` 3 (Postgres, parameterized queries only), `httpx` (async HTTP),
-`boto3` (S3), `pyarrow` (Parquet snapshots), `pdfplumber` (PDF text with positions),
+`beautifulsoup4` (HTML link extraction with charset detection, research R1), `boto3` (S3), `pyarrow` (Parquet snapshots), `pdfplumber` (PDF text with positions),
 `pytesseract` (OCR wrapper; needs the system Tesseract binary, used only for scanned papers),
 `openai` (thin client for machine translation through an OpenAI-compatible endpoint).
-Standard library covers robots.txt (`urllib.robotparser`), HTML link extraction
-(`html.parser`), and parallelism (`concurrent.futures`). Choices and rejected alternatives
+Standard library covers robots.txt (`urllib.robotparser`), sitemaps
+(`xml.etree`), and parallelism (`concurrent.futures`). Choices and rejected alternatives
 are in [research.md](research.md).
 
 **Storage**: Postgres 17 is the live store. Raw files and snapshots go to a
@@ -152,6 +152,8 @@ pipeline/                      # NEW optional package; harness never imports it
 ├── manifests.py               # catalog.yaml and ledger.jsonl as typed data: readers,
 │                              #   ledger replay, catalog validation
 ├── acquire.py                 # stages: catalog, discover, review, fetch
+├── web.py                     # polite HTTP (robots, rate limit, backoff, conditional
+│                              #   GET) and link extraction
 ├── extract.py                 # stage: extract (text/OCR → questions, stimuli, failures)
 ├── keys.py                    # stage: key (sole writer of answer_keys)
 ├── translate.py               # stage: translate (sole writer of translations)
@@ -166,6 +168,7 @@ tests/pipeline/                # NEW; run by the CI `pipeline` job only
 ├── test_acquire.py            # catalog completeness, ledger, review rules
 ├── test_store.py              # blob stores, Postgres store, CLI exit codes
 ├── test_fetch.py              # discover and fetch rules (allowlist, robots, rate limit)
+├── test_web.py                # backoff, Retry-After, conditional GET, link decoding
 ├── test_extract.py            # extract, keys, translate, canonical dedupe, failures
 ├── test_publish.py            # snapshot counts, export byte-identity, harness smoke,
 │                              #   rebuild equivalence, hand-check gating
@@ -186,13 +189,16 @@ by one generic parser (Convention over Configuration). A per-exam parser module 
 only when an exam's layout cannot be expressed as config. That would be the second real
 instance, and would be a justified overrun (YAGNI).
 
-**File count (FR-034)**: 17 new files in `pipeline/` (counting `catalog.yaml`,
-`ledger.jsonl`, `samples/allowlist.yaml`, and `fingerprints.txt`) plus 7 in
-`tests/pipeline/` is **24, over the target of 20 by 4**. Implementation added three
+**File count (FR-034)**: 18 new files in `pipeline/` (counting `catalog.yaml`,
+`ledger.jsonl`, `samples/allowlist.yaml`, and `fingerprints.txt`) plus 8 in
+`tests/pipeline/` is **26, over the target of 20 by 6**. Implementation added five
 files to the earlier estimate of 21, each forced by the 800-line limit (CDR-2026-022)
 and single responsibility: `manifests.py` (typed manifests, split from the acquisition
 stages when `acquire.py` reached 878 lines), `test_store.py`, and `test_fetch.py` (the
-storage and network tests, split from `test_acquire.py`).
+storage and network tests, split from `test_acquire.py`), and `web.py` with
+`test_web.py` (HTTP etiquette and link extraction, split from `acquire.py` at 832
+lines when backoff, conditional requests, and charset handling were added; it changes
+when web rules change, the stages when acquisition rules change).
 Justification for the PR: (a) `tests/pipeline/` needs its own `conftest.py` so the core CI
 job can ignore the directory without importing pipeline-only dependencies; (b)
 `fingerprints.txt` and `samples/allowlist.yaml` are data files required by FR-025 and

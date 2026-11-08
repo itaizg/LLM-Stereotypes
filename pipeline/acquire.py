@@ -5,24 +5,18 @@ them into database rows and ledger events. Every stage is callable on its own
 (FR-018) and idempotent (FR-019).
 
 Network rules (FR-007, FR-008, research R1 and R6): a URL is fetched only after
-the maintainer approves it, only from its exam's allowlisted domains, only if
-robots.txt allows it, and never faster than the per-domain rate limit. A
-refusal is recorded in the ledger, not raised.
+the maintainer approves it, and only through ``web.Fetcher``, which applies the
+allowlist, robots.txt, the per-domain rate limit, and backoff. A refusal is
+recorded in the ledger, not raised.
 """
 
 from __future__ import annotations
 
-import asyncio
-import time
-import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
-from html.parser import HTMLParser
 from pathlib import Path
-from typing import Protocol
-from urllib.parse import urldefrag, urljoin, urlsplit
-from urllib.robotparser import RobotFileParser
+from urllib.parse import urlsplit
 
 import httpx
 import psycopg
@@ -45,14 +39,13 @@ from pipeline.manifests import (
     validate_catalog,
 )
 from pipeline.store import Counts, StageSummary, apply_schema, reconcile
+from pipeline.web import Clock, Fetched, Fetcher, extract_links
 
 __all__ = [
-    "USER_AGENT",
     "CatalogError",
     "DiscoverSummary",
     "FetchSummary",
     "LedgerError",
-    "SystemClock",
     "add_manual_url",
     "discover",
     "fetch",
@@ -60,10 +53,6 @@ __all__ = [
     "run_catalog",
 ]
 
-# No personal contact details: the repository URL identifies the project.
-USER_AGENT = "LLM-Stereotypes-dataset/1.0 (+https://github.com/itaizg/LLM-Stereotypes)"
-MAX_REDIRECTS = 5
-_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 _REFUSALS = frozenset({"refused_domain", "refused_robots", "login_required"})
 
 
@@ -219,35 +208,7 @@ def review(
     return True
 
 
-# --- polite fetching -----------------------------------------------------------
-
-
-class Clock(Protocol):
-    """Time, injected so rate limiting is testable without waiting."""
-
-    def now(self) -> float: ...
-
-    async def sleep(self, seconds: float) -> None: ...
-
-
-class SystemClock:
-    """The real clock, used by the CLI; tests inject a virtual one instead."""
-
-    def now(self) -> float:
-        return time.monotonic()
-
-    async def sleep(self, seconds: float) -> None:
-        await asyncio.sleep(seconds)
-
-
-@dataclass(frozen=True)
-class Fetched:
-    """The result of one policy-checked GET."""
-
-    outcome: str
-    status: int | None = None
-    body: bytes = b""
-    media_type: str | None = None
+# --- polite fetching -------------------------------------------------------------
 
 
 def interval_for(catalog: Catalog) -> Callable[[str], float]:
@@ -261,140 +222,6 @@ def interval_for(catalog: Catalog) -> Callable[[str], float]:
         )
 
     return interval
-
-
-class Fetcher:
-    """GET with the allowlist, robots.txt, redirect, and rate-limit rules applied.
-
-    One instance per command run, so robots.txt is fetched once per domain.
-    """
-
-    def __init__(
-        self,
-        client: httpx.AsyncClient,
-        clock: Clock,
-        interval: Callable[[str], float],
-    ) -> None:
-        self._client = client
-        self._clock = clock
-        self._interval = interval
-        self._locks: dict[str, asyncio.Lock] = {}
-        self._last: dict[str, float] = {}
-        # True/False mean allow-all/disallow-all (no or unusable robots.txt).
-        self._robots: dict[str, RobotFileParser | bool] = {}
-
-    async def _throttled_get(self, url: str) -> httpx.Response:
-        host = (urlsplit(url).hostname or "").lower()
-        async with self._locks.setdefault(host, asyncio.Lock()):
-            last = self._last.get(host)
-            if last is not None:
-                wait = last + self._interval(host) - self._clock.now()
-                if wait > 0:
-                    await self._clock.sleep(wait)
-            try:
-                return await self._client.get(url, headers={"User-Agent": USER_AGENT})
-            finally:
-                self._last[host] = self._clock.now()
-
-    async def _robots_allow(self, url: str) -> bool:
-        parts = urlsplit(url)
-        host = (parts.hostname or "").lower()
-        rules = self._robots.get(host)
-        if rules is None:
-            rules = await self._read_robots(f"{parts.scheme}://{parts.netloc}")
-            self._robots[host] = rules
-        if isinstance(rules, bool):
-            return rules
-        return rules.can_fetch(USER_AGENT, url)
-
-    async def _read_robots(self, origin: str) -> RobotFileParser | bool:
-        """Read robots.txt as ``urllib`` does, but through the rate limiter.
-
-        401/403 or a server error forbids everything (be polite when unsure);
-        any other 4xx means there is no robots.txt, so nothing is forbidden.
-        """
-        try:
-            response = await self._throttled_get(f"{origin}/robots.txt")
-        except httpx.HTTPError:
-            return False
-        code = response.status_code
-        if code == 200:
-            parser = RobotFileParser()
-            parser.parse(response.text.splitlines())
-            parser.modified()  # can_fetch refuses until the file counts as read
-            return parser
-        return not (code in {401, 403} or code >= 500)
-
-    async def get(self, url: str, allowed: frozenset[str]) -> Fetched:
-        """Fetch ``url`` if the rules allow; otherwise return the refusal."""
-        current = url
-        for _ in range(MAX_REDIRECTS + 1):
-            host = (urlsplit(current).hostname or "").lower()
-            if host not in allowed:
-                # Off the allowlist from the start is a refused domain; arriving
-                # there by redirect usually means a sign-in page.
-                return Fetched("refused_domain" if current == url else "login_required")
-            if not await self._robots_allow(current):
-                return Fetched("refused_robots")
-            try:
-                response = await self._throttled_get(current)
-            except httpx.HTTPError:
-                return Fetched("http_error")
-            code = response.status_code
-            location = response.headers.get("location")
-            if code in _REDIRECT_CODES and location:
-                current = urljoin(current, location)
-                continue
-            if code in {401, 403}:
-                return Fetched("login_required", code)
-            if 200 <= code < 300:
-                kind = response.headers.get("content-type", "").split(";")[0]
-                return Fetched(
-                    "fetched",
-                    code,
-                    response.content,
-                    kind.strip().lower() or "application/octet-stream",
-                )
-            return Fetched("http_error", code)
-        return Fetched("http_error")
-
-
-# --- link extraction -----------------------------------------------------------
-
-
-class _LinkParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.hrefs: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "a":
-            self.hrefs.extend(v for k, v in attrs if k == "href" and v)
-
-
-def extract_links(base_url: str, body: bytes, media_type: str | None) -> list[str]:
-    """Absolute http(s) links in an HTML page or sitemap, fragments removed."""
-    raw: list[str] = []
-    if "xml" in (media_type or "") or base_url.endswith(".xml"):
-        try:
-            root = ET.fromstring(body)
-        except ET.ParseError:
-            return []
-        raw = [
-            (node.text or "").strip()
-            for node in root.iter()
-            if node.tag.rsplit("}", 1)[-1] == "loc"
-        ]
-    else:
-        parser = _LinkParser()
-        parser.feed(body.decode("utf-8", errors="replace"))
-        raw = parser.hrefs
-    links: list[str] = []
-    for href in raw:
-        absolute, _ = urldefrag(urljoin(base_url, href))
-        if urlsplit(absolute).scheme in {"http", "https"} and absolute not in links:
-            links.append(absolute)
-    return links
 
 
 # --- discover ------------------------------------------------------------------
@@ -425,32 +252,101 @@ def _candidate_fields(
     }
 
 
+def _cached(fetches: Sequence[FetchRecord], blobs: BlobStore) -> FetchRecord | None:
+    """The latest successful fetch whose bytes are still in the blob store.
+
+    Only such a fetch may make a request conditional: a 304 says "you already
+    have it", which is useless if the bytes are gone.
+    """
+    for record in reversed(fetches):
+        if record.outcome == "fetched":
+            if record.sha256 and blobs.exists(record.sha256):
+                return record
+            return None
+    return None
+
+
+async def _get_and_store(
+    fetcher: Fetcher,
+    url: str,
+    allowed: frozenset[str],
+    blobs: BlobStore,
+    cached: FetchRecord | None,
+) -> tuple[Fetched, FetchRecord | None]:
+    """GET (conditionally, when ``cached``) and store new bytes as a blob.
+
+    Returns the result and, when it is a success, the record to log. A 304 is
+    a success that reuses the cached blob, so it logs nothing new unless the
+    latest event for the source was a failure.
+    """
+    result = await fetcher.get(
+        url,
+        allowed,
+        etag=cached.etag if cached else None,
+        last_modified=cached.last_modified if cached else None,
+    )
+    if result.outcome == "not_modified":
+        if cached is None:  # a 304 to an unconditional request is a server bug
+            return Fetched("http_error", result.status), None
+        record = FetchRecord(
+            "fetched",
+            cached.sha256,
+            cached.media_type,
+            cached.size,
+            result.etag or cached.etag,
+            result.last_modified or cached.last_modified,
+        )
+        return result, record
+    if result.outcome != "fetched":
+        return result, None
+    record = FetchRecord(
+        "fetched",
+        blobs.put(result.body),
+        result.media_type,
+        len(result.body),
+        result.etag,
+        result.last_modified,
+    )
+    return result, record
+
+
 def _record_fetch(
     ledger_path: Path,
     latest: dict[str, FetchRecord],
     source_id: str,
     result: Fetched,
-    sha256: str | None,
+    record: FetchRecord | None,
     at: str,
 ) -> bool:
-    """Append a fetch event unless it repeats the source's latest outcome and hash."""
+    """Append a fetch event unless it repeats the source's latest outcome and hash.
+
+    ``record`` is the success to log (None for a refusal or error). Validators
+    are written only on success; an ETag that changes while the bytes do not is
+    not a change (FR-019), so its stored value can go stale, which only costs a
+    full 200 response on the next refresh.
+    """
+    if record is None:
+        record = FetchRecord(result.outcome, None, result.media_type, None)
     previous = latest.get(source_id)
-    if previous and previous.outcome == result.outcome and previous.sha256 == sha256:
+    if (
+        previous
+        and previous.outcome == record.outcome
+        and previous.sha256 == record.sha256
+    ):
         return False
-    append_event(
-        ledger_path,
-        "fetch",
-        {
-            "source_id": source_id,
-            "outcome": result.outcome,
-            "sha256": sha256,
-            "media_type": result.media_type,
-            "bytes": len(result.body) if sha256 else None,
-            "http_status": result.status,
-        },
-        at=at,
-    )
-    latest[source_id] = FetchRecord(result.outcome, sha256, result.media_type, None)
+    fields: dict[str, object] = {
+        "source_id": source_id,
+        "outcome": record.outcome,
+        "sha256": record.sha256,
+        "media_type": record.media_type,
+        "bytes": record.size,
+        "http_status": result.status,
+    }
+    if record.outcome == "fetched":
+        fields["etag"] = record.etag
+        fields["last_modified"] = record.last_modified
+    append_event(ledger_path, "fetch", fields, at=at)
+    latest[source_id] = record
     return True
 
 
@@ -490,15 +386,23 @@ async def discover(
                 )
                 known.add(seed_id)
                 added += 1
-            result = await fetcher.get(seed.url, allowed)
-            sha256 = blobs.put(result.body) if result.outcome == "fetched" else None
-            _record_fetch(ledger_path, latest, seed_id, result, sha256, at)
+            history = state.sources[seed_id].fetches if seed_id in state.sources else []
+            result, record = await _get_and_store(
+                fetcher, seed.url, allowed, blobs, _cached(history, blobs)
+            )
+            _record_fetch(ledger_path, latest, seed_id, result, record, at)
             if result.outcome in _REFUSALS:
                 refused += 1
-            if result.outcome != "fetched":
+            if record is None or record.sha256 is None:
                 continue
             seeds_fetched += 1
-            for link in extract_links(seed.url, result.body, result.media_type):
+            # An unchanged seed (304) is re-read from its blob, so a better link
+            # extractor still finds links on a page the server has not changed.
+            body = (
+                result.body if result.outcome == "fetched" else blobs.get(record.sha256)
+            )
+            links = extract_links(seed.url, body, record.media_type, result.charset)
+            for link in links:
                 if source_id_for(link) in known:
                     continue
                 fields = _candidate_fields(link, "index_crawl", seed.url, allowed)
@@ -584,12 +488,15 @@ async def fetch(
         if not refresh and sid in latest and latest[sid].outcome == "fetched":
             skipped += 1
             continue
-        result = await fetcher.get(
-            source.url, frozenset(catalog.exams[exam_id].domains)
+        result, record = await _get_and_store(
+            fetcher,
+            source.url,
+            frozenset(catalog.exams[exam_id].domains),
+            blobs,
+            _cached(source.fetches, blobs),
         )
-        sha256 = blobs.put(result.body) if result.outcome == "fetched" else None
-        changed = _record_fetch(ledger_path, latest, sid, result, sha256, at)
-        if result.outcome == "fetched":
+        changed = _record_fetch(ledger_path, latest, sid, result, record, at)
+        if record is not None:
             fetched += changed
             unchanged += not changed
         elif result.outcome in _REFUSALS:

@@ -460,6 +460,9 @@ class FetchRecord:
     sha256: str | None
     media_type: str | None
     size: int | None
+    # HTTP validators for a conditional refresh; absent on older ledger lines.
+    etag: str | None = None
+    last_modified: str | None = None
 
 
 @dataclass
@@ -542,6 +545,8 @@ def replay_ledger(events: Sequence[LedgerEvent]) -> LedgerState:
                         sha256=event.text("sha256"),
                         media_type=event.text("media_type"),
                         size=event.number("bytes"),
+                        etag=event.text("etag"),
+                        last_modified=event.text("last_modified"),
                     )
                 )
             elif event.text("decision") == "approved":

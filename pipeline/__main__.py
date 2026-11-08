@@ -18,10 +18,9 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-import httpx
 import psycopg
 
-from pipeline import acquire
+from pipeline import acquire, web
 from pipeline.blobs import open_blob_store
 from pipeline.manifests import load_catalog, read_ledger, replay_ledger
 from pipeline.store import (
@@ -183,13 +182,13 @@ def _discover(args: argparse.Namespace) -> int:
             return EXIT_OK
 
         async def crawl() -> acquire.DiscoverSummary:
-            async with httpx.AsyncClient(follow_redirects=False) as client:
+            async with web.new_client() as client:
                 return await acquire.discover(
                     catalog,
                     Path(args.ledger),
                     open_blob_store(),
                     client,
-                    acquire.SystemClock(),
+                    web.SystemClock(),
                     at=_now(),
                     exam=args.exam,
                 )
@@ -235,13 +234,13 @@ def _fetch(args: argparse.Namespace) -> int:
     with writing():
 
         async def run() -> acquire.FetchSummary:
-            async with httpx.AsyncClient(follow_redirects=False) as client:
+            async with web.new_client() as client:
                 return await acquire.fetch(
                     catalog,
                     Path(args.ledger),
                     open_blob_store(),
                     client,
-                    acquire.SystemClock(),
+                    web.SystemClock(),
                     at=_now(),
                     exam=args.exam,
                     refresh=args.refresh,
