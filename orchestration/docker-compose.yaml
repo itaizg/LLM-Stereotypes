@@ -1,0 +1,96 @@
+# The local Dagster stack (specs/002-airflow-orchestration, contracts/stack.md).
+#
+#   docker compose -f orchestration/docker-compose.yaml up -d --build
+#
+# One Postgres server holds two databases, `dagster` and `pipeline`. The web server shows
+# runs and launches backfills; the daemon executes them (and the run queue). Only loopback
+# ports are published. Secrets come from orchestration/.env.
+
+x-dagster-image: &dagster-image
+  build:
+    context: ..
+    dockerfile: orchestration/Dockerfile
+  image: exam-dagster
+
+x-dagster-env: &dagster-env
+  DAGSTER_DB_PASSWORD: ${DAGSTER_DB_PASSWORD:?set DAGSTER_DB_PASSWORD in orchestration/.env}
+
+x-dagster-user: &dagster-user "${DAGSTER_UID:-1000}:0"
+
+x-repo-mount: &repo-mount ..:/opt/project
+services:
+  postgres:
+    image: postgres:17.6
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD in orchestration/.env}
+      DAGSTER_DB_PASSWORD: ${DAGSTER_DB_PASSWORD}
+      PIPELINE_DB_PASSWORD: ${PIPELINE_DB_PASSWORD:?set PIPELINE_DB_PASSWORD in orchestration/.env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  dagster-init:
+    <<: *dagster-image
+    user: *dagster-user
+    environment: *dagster-env
+    # Create or upgrade the run-storage tables before the other services start.
+    command: ["dagster", "instance", "migrate"]
+    volumes:
+      - *repo-mount
+      - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dagster-webserver:
+    <<: *dagster-image
+    user: *dagster-user
+    environment: *dagster-env
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster_home/workspace.yaml"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - *repo-mount
+      - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
+      - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/server_info"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      dagster-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  dagster-daemon:
+    <<: *dagster-image
+    user: *dagster-user
+    # The daemon launches the runs, which run the pipeline, so this is the one service
+    # that holds the pipeline's DSN and any API key.
+    environment:
+      <<: *dagster-env
+      PIPELINE_DSN: postgresql://pipeline:${PIPELINE_DB_PASSWORD}@postgres:5432/pipeline
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    command: ["dagster-daemon", "run", "-w", "/opt/dagster_home/workspace.yaml"]
+    volumes:
+      - *repo-mount
+      - ./docker/dagster.yaml:/opt/dagster_home/dagster.yaml:ro
+      - ./docker/workspace.yaml:/opt/dagster_home/workspace.yaml:ro
+    depends_on:
+      dagster-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
