@@ -19,6 +19,7 @@ Each table has exactly one writing stage:
 
 | Table | Writer | Write mode |
 |-------|--------|-----------|
+| `exams` | `catalog` | reconcile with catalog.yaml |
 | `exam_editions` | `catalog` | reconcile with catalog.yaml |
 | `sources` | `catalog` (replays ledger) | reconcile with ledger |
 | `artifacts` | `catalog` (replays ledger) | reconcile with ledger |
@@ -55,12 +56,28 @@ rows that are no longer produced. Unchanged inputs produce zero writes (FR-019).
 
 ## Tables
 
+### `exams` (the exam registry)
+
+The `catalog` stage copies the `exams` section of `catalog.yaml` into this table, so the
+spec's Exam entity is in every snapshot and in the data dictionary (FR-022). Parse
+patterns and seed URLs stay in `catalog.yaml` only: they are pipeline configuration, not
+dataset content.
+
+| Column | Type | Rules |
+|--------|------|-------|
+| `exam_id` | text PK | one of `sat`, `psychometric`, `csat`, `gaokao`, `common_test`, `enem` (FR-001) |
+| `name` | text, not null | official exam name |
+| `body` | text, not null | official body (e.g. `INEP`, `KICE`, `NITE`) |
+| `language` | text, not null | BCP 47 original language |
+| `domains` | text[], not null | allowlisted official domains (FR-008) |
+| `publishes_keys` | bool, not null | must be true (FR-006) |
+
 ### `exam_editions` (the exam catalog)
 
 | Column | Type | Rules |
 |--------|------|-------|
 | `edition_id` | text PK | `{exam}-{year}-{sitting}`; matches `^[a-z][a-z_]*-20(1[5-9]\|2[0-5])-[a-z0-9-]+$` (the exam part allows `_` for `common_test`) |
-| `exam_id` | text | one of `sat`, `psychometric`, `csat`, `gaokao`, `common_test`, `enem` (FR-001) |
+| `exam_id` | text FK → `exams` | |
 | `year` | int | 2015–2025 |
 | `sitting` | text | sitting, form, or paper name (e.g. `national-i`, `main`, `practice-03`) |
 | `kind` | text | `administered` \| `practice` (FR-005) |
@@ -70,7 +87,7 @@ rows that are no longer produced. Unchanged inputs produce zero writes (FR-019).
 | `official_url` | text | required when `ingested` |
 | `lineage` | text | format era, e.g. `sat-paper-2016`, `sat-digital`, `center-test`, `common-test` |
 | `language` | text | BCP 47, e.g. `ko`, `zh-Hans`, `ja`, `he`, `pt-BR`, `en` |
-| `translation_of` | text FK → `exam_editions` | set on official English editions paired with an original |
+| `english_item_map` | jsonb, nullable | `{"<section>:<item>": "<section>:<item>"}` from the original's numbering to the official English version's, only when they differ (research R10) |
 | `evidence` | jsonb | list of `{type, source_id \| artifact_sha256, note}`; must not be empty. Types: `release_page`, `statement` (an official statement that the paper was not released), `index_absence` (absent from an official listing the catalog marks `complete_listing: true`) |
 
 Validation, enforced by the `catalog` stage before any write and fatal on failure:
@@ -110,13 +127,25 @@ Candidates on a non-allowlisted domain are created as `rejected`, with reason
 | `sha256` | text | blob key; PK together with `edition_id` |
 | `edition_id` | text FK | one artifact may serve several editions (e.g. one key PDF) |
 | `source_id` | text FK | the approved source it was fetched from |
-| `role` | text | `paper` \| `key` \| `key_erratum` \| `english` \| `audio` \| `statement` \| `index_page` |
+| `role` | text | `paper` \| `key` \| `key_erratum` \| `english` \| `audio` \| `statement` \| `index_page`; `english` is the official English version of this edition's paper (see below) |
 | `media_type` | text | e.g. `application/pdf`, `audio/mpeg`, `text/html` |
 | `published` | date, nullable | required for `key_erratum`; optional for `key`, since many ordinary key files carry no date |
 | `bytes` | bigint | |
 
 Changed content at the same URL gets a new `sha256` and a new row. Old rows and blobs are
 never removed (FR-009 edge case).
+
+**Official English versions are artifacts, not editions.** An official English version
+of a paper (e.g. the Psychometric exam's English version) is attached to the original
+edition as an artifact with role `english`. `extract` never reads it, so its text never
+enters `questions`. `translate` parses it in memory and writes the paired text only as
+`official` rows in `translations`. That keeps official English in one store (FR-016,
+constitution Principle IV) and keeps the English version out of exports and cell coverage
+as a second copy of the same questions. An English paper whose questions differ from the
+original is not a translation: it is catalogued as its own edition with `language: en`,
+and its questions are English-original (spec Edge Cases). Official versions in other
+languages are not catalogued in this feature and are listed as a known gap in the dataset
+card.
 
 ### `stimuli`
 
@@ -143,7 +172,7 @@ never removed (FR-009 edge case).
 | `choices` | jsonb | ordered list of `{label, text}` in original labels (`①`, `A`, `1`…); empty for free response |
 | `has_figure`, `has_table`, `has_audio`, `is_free_response` | bool, not null | FR-011 |
 | `stimulus_id` | text FK, nullable | |
-| `source_url`, `artifact_sha256`, `page`, `pipeline_version` | not null | provenance (SC-002); `pipeline_version` is the git SHA |
+| `source_url`, `artifact_sha256`, `page`, `pipeline_version` | not null | provenance (SC-002); `pipeline_version` is the git SHA, with a `-dirty` suffix when pipeline code (`pipeline/**/*.py`, `pipeline/schema.sql`) has uncommitted changes |
 | `content_hash` | text, not null | excludes `pipeline_version` (R7) |
 | `retired` | bool, not null | true when the latest `extract` run no longer produces this question |
 
@@ -188,10 +217,10 @@ current key. The tie-break is never used to pick a winner silently.
 
 `translate` writes an `mt` row only when no `official` row exists for the same subject and
 `source_content_hash` (FR-015). English-original questions get no row; the view uses their
-original text. This reads FR-014 as covering English text that is *not* the original
-language: for an English-original edition, FR-010 already requires that text in the
-question record, and a copy in `translations` would be a second store of the same text
-(FR-016). See research R10.
+original text. FR-014 covers only English that is not the question's original language
+(spec Clarifications, analysis session): for an English-original edition, FR-010 already
+requires that text in the question record, and a copy in `translations` would be a second
+store of the same text (FR-016). See research R10.
 
 **Preferred translation**: among rows whose `source_content_hash` equals the subject's
 current `content_hash`, prefer `official` over `mt`, then the greatest `translation_id`.
@@ -208,6 +237,12 @@ A translation made from superseded content is never preferred.
 | `detail` | text | free text; never holds question text, only positions and counts |
 | `artifact_sha256`, `page`, `pipeline_version` | | |
 | PK | `(stage, subject_id, reason_code)` | |
+
+**No silent empty editions** (SC-002). When `extract` produces zero questions for an
+`ingested` edition and has not already written a whole-edition failure (such as
+`artifact_unreadable`), it writes `item_split_failed` with `subject_id =
+edition:<edition_id>` and a `detail` giving the page count. So every ingested edition has
+question rows or failure rows.
 
 **Reason codes** (`pipeline.extract.ReasonCode`, a `StrEnum`; a test asserts the SQL
 `CHECK` list is identical): `artifact_unreadable`, `unsupported_format`,
@@ -227,8 +262,10 @@ rows themselves are snapshotted too.
 
 ### `snapshots`
 
-`version` (PK, `snap-NNNN`), `git_sha`, `catalog_sha256`, `ledger_sha256`, `row_counts`
-(jsonb), `uri`. This is the registry of published snapshots. It is the one table a
+`version` (PK, `snap-NNNN`), `git_sha`, `catalog_sha256`, `ledger_sha256`,
+`content_sha256`, `row_counts` (jsonb), `uri`. `content_sha256` identifies what the
+snapshot holds (research R11), so an unchanged store produces no new version (FR-019).
+This is the registry of published snapshots. It is the one table a
 snapshot does not copy, because its own row is written only after the snapshot is
 published (research R11).
 
@@ -254,6 +291,23 @@ question's current choice labels; English exists; and the stimulus, if any, is `
 with English. `ineligible_reason` names the first rule that fails, in the order listed.
 The view does not apply the exam-level `unverified` exclusion. The export applies it,
 reading `exam_status.parquet` from the same snapshot (contracts/outputs.md).
+
+## View: `integrity_violations` (SC-002, SC-004)
+
+One row per `(check_name, subject_id)` that breaks an invariant the schema's constraints cannot
+express on their own. `snapshot` counts these rows inside its transaction and refuses to
+publish (exit 3) if any exist, printing counts per check, never text. The test suite
+checks the same view on synthetic data. The checks:
+
+| `check_name` | A row means |
+|--------------|-------------|
+| `edition_without_output` | an `ingested` edition has no non-retired question and no failure row |
+| `key_not_official` | an `answer_keys` row's `artifact_sha256` is not an artifact with role `key` or `key_erratum` for the question's edition |
+| `english_missing` | a non-retired question (or a text stimulus) in a non-English edition has no preferred translation and no `translate`-stage failure |
+| `question_without_artifact` | a question's `artifact_sha256` is not an artifact of its edition |
+
+Missing editions and missing provenance need no check: foreign keys and `NOT NULL` already
+make them impossible.
 
 ## State rules
 
@@ -284,6 +338,7 @@ question changed, and those questions re-checked (research R14).
 
 | Table | Rows (order of magnitude) |
 |-------|---------------------------|
+| `exams` | 6 |
 | `exam_editions` | 10² |
 | `sources` | 10³ |
 | `artifacts` | 10³ |

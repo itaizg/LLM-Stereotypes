@@ -1,0 +1,106 @@
+# The exam catalog: which exams are in scope and which editions exist (FR-001..FR-006).
+# Format: specs/001-exam-data-aggregation/contracts/manifests.md.
+#
+# STATUS: the exam registry below is a skeleton. `pipeline catalog` exits 3 until the
+# maintainer has (1) filled in each exam's domains, seeds, and keys_evidence from the
+# official body's own site, and (2) authored an edition with evidence for every one of
+# the 66 exam-year cells. That refusal is the intended FR-003 gate, not a bug.
+#
+# Nothing here is guessed. A domain is an allowlist entry (FR-008): a wrong one lets the
+# fetcher talk to the wrong site, and a missing one just blocks fetching. So domains stay
+# empty until the maintainer confirms them. The same goes for keys_evidence (FR-006: an
+# exam is in scope only if its official body publishes answer keys) and for editions
+# (evidence must cite a source the maintainer has approved).
+#
+# The `parse` blocks are provisional placeholders so the file loads. Each exam's real
+# item and choice markers come from its actual paper layout (research R8) and are set
+# when extraction first runs on that exam.
+#
+# keys_evidence (FR-006): each exam must cite an approved source showing that its official
+# body publishes answer keys. The flow is: author at least one edition below; run
+# `pipeline discover --add-url URL --edition EDITION_ID` (the edition selects the
+# allowlist); run `pipeline review SOURCE_ID --approve --edition EDITION_ID --role key`;
+# then set `keys_evidence: {source_id: SOURCE_ID, note: "..."}` on the exam. An exam whose
+# body does not publish keys is out of scope: removing it is a spec change, and
+# `publishes_keys: false` makes `pipeline catalog` refuse.
+version: 1
+
+translation:
+  model: claude-sonnet-5-5
+  base_url: https://api.anthropic.com/v1/
+
+defaults:
+  rate_limit_seconds: 5
+
+exams:
+  sat:
+    name: SAT
+    body: College Board
+    language: en
+    publishes_keys: true # TODO: cite an approved College Board answer-key source in keys_evidence (see header)
+    domains: [] # TODO: confirm hostnames from approved College Board sources; allowlist only those hosts
+    seeds: [] # TODO: add official College Board archive/index URLs; mark complete_listing only if it is demonstrably complete
+    parse: &provisional_parse
+      item_marker: '^(\d+)\.'
+      choice_markers: [A, B, C, D]
+      columns: 1
+      key_table: '^(\d+)\s+([A-D])$'
+
+  psychometric:
+    name: Psychometric Entrance Test
+    body: National Institute for Testing and Evaluation (NITE)
+    language: he
+    publishes_keys: true # TODO: cite an approved NITE answer-key source in keys_evidence (see header)
+    domains: [www.nite.org.il]
+    seeds: [] # TODO: add official NITE exam/archive index URLs; mark complete_listing only if it is demonstrably complete
+    parse: *provisional_parse
+
+  csat:
+    name: College Scholastic Ability Test (CSAT)
+    body: Korea Institute for Curriculum and Evaluation (KICE)
+    language: ko
+    publishes_keys: true # TODO: cite an approved KICE answer-key source in keys_evidence (see header)
+    domains: [www.kice.re.kr, www.suneung.re.kr]
+    seeds:
+      - url: https://www.suneung.re.kr/
+        complete_listing: false
+    parse: *provisional_parse
+
+  gaokao:
+    name: National College Entrance Examination (Gaokao)
+    body: Ministry of Education of the People's Republic of China
+    language: zh-Hans
+    publishes_keys: true # TODO: verify an official body publishes keys; if so, cite the approved source in keys_evidence (see header)
+    domains: [www.moe.gov.cn, gaokao.neea.edu.cn]
+    seeds:
+      - url: https://gaokao.neea.edu.cn/
+        complete_listing: false
+    parse: *provisional_parse
+
+  common_test:
+    name: Common Test for University Admissions (successor to the National Center Test)
+    body: National Center for University Entrance Examinations
+    language: ja
+    publishes_keys: true # TODO: cite an approved DNC answer-key source in keys_evidence (see header)
+    domains: [www.dnc.ac.jp]
+    seeds:
+      - url: https://www.dnc.ac.jp/kyotsu/
+        complete_listing: false
+    parse: *provisional_parse
+
+  enem:
+    name: Exame Nacional do Ensino Médio (ENEM)
+    body: INEP
+    language: pt-BR
+    publishes_keys: true # TODO: cite an approved INEP answer-key source in keys_evidence (see header)
+    domains: [www.gov.br, download.inep.gov.br]
+    seeds:
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos
+        # true only once the page is checked to list every year 2015-2025 (index_absence evidence)
+        complete_listing: false
+    parse: *provisional_parse
+
+# One entry per edition (exam x year x sitting/form/paper), 66 cells in all.
+# Each needs a status (ingested | not_released | blocked) and evidence; see the
+# contract for the fields. Authored by the maintainer as sources are approved.
+editions: []

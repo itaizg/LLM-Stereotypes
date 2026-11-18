@@ -175,3 +175,9 @@ compare.json
 /questions.json
 suites/stereotype_threat/questions.json
 ci_suites/
+
+# Exam-dataset pipeline (specs/001-exam-data-aggregation): the default local
+# blob root holds raw College Board/KICE/... papers and snapshots (private), and
+# exported question banks hold corpus text. Neither is ever committed.
+.pipeline-data/
+exports/

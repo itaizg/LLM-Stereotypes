@@ -107,7 +107,7 @@ new is added.
 ### User Story 3 - English for every question, with official text preferred (Priority: P3)
 
 For every non-English question, an English rendering exists, or a failure record explains
-why it does not. Official English editions are always used where they exist. Machine
+why it does not. Official English versions are always used where they exist. Machine
 translation fills in only where no official English exists, and each machine-translated
 record says which model, revision, and prompt produced it.
 
@@ -205,9 +205,11 @@ store, and compare per-question content hashes and snapshot row counts with the 
   the cell is not reported as missing.
 - **Scanned papers with poor OCR** (older Korean, Chinese, and Japanese scans): low-confidence
   extraction becomes a failure record with a reason code, never a silently wrong record.
-- **An exam offered in several official languages** (e.g. the Psychometric exam): official
-  non-Hebrew versions are treated as official translations, or as separate editions if
-  their questions differ.
+- **An exam offered in several official languages** (e.g. the Psychometric exam): an
+  official English version of a paper is an official translation of that paper's edition,
+  not a second edition, so its questions are never stored or exported twice. An English
+  paper whose questions differ is a separate edition. Official versions in other languages
+  are not catalogued in this feature and are listed as a known gap in the dataset card.
 - **A cell with no edition at all** (e.g. a sitting cancelled): the cell still gets an
   edition row with evidence, so cell coverage stays complete.
 
@@ -271,8 +273,10 @@ store, and compare per-question content hashes and snapshot row counts with the 
 - **FR-013**: A question without an official key, or one that cannot be extracted
   reliably, MUST produce a failure record with a reason code from a fixed, documented
   list.
-- **FR-014**: English text MUST be stored only as translation records linked to a
-  question. Each record MUST state its source (official or machine translation) and its
+- **FR-014**: English text that is not the question's original language MUST be stored
+  only as translation records linked to a question. The text of an English-original
+  question is its original-language content under FR-010 and is not copied into a
+  translation record. Each record MUST state its source (official or machine translation) and its
   own provenance. Machine-translation records MUST also state model, model revision, and
   prompt hash.
 - **FR-015**: Machine translation MUST be used only when no official English version of
@@ -290,7 +294,8 @@ store, and compare per-question content hashes and snapshot row counts with the 
   discover, fetch, extract, key, translate, export, snapshot). Each stage MUST be runnable
   on its own.
 - **FR-019**: Every stage MUST be idempotent. Re-running it on unchanged inputs MUST add
-  and change nothing.
+  and change nothing. For `snapshot`, this means no new version is published when the
+  store and its committed inputs are unchanged since the latest snapshot.
 - **FR-020**: Rebuilding from stored raw files MUST reproduce identical per-question
   content hashes.
 
@@ -311,7 +316,8 @@ store, and compare per-question content hashes and snapshot row counts with the 
   exam from the same snapshot MUST produce a byte-identical file.
 - **FR-024**: The system MUST support a hand-check of a random, seeded sample of 50
   questions per exam against the source, and a human-reviewed, scored sample of 30
-  translated questions per language, with results recorded. If any sampled question fails
+  translated questions per language, with results recorded. An exam or language with
+  fewer questions than its sample size is checked in full. If any sampled question fails
   to match the source in stem, choices, or key, the exam MUST be marked `unverified`: it is
   excluded from suite export and labelled `unverified` in snapshots until its extraction is
   fixed, its questions are re-extracted, and a new 50-question sample, drawn with a new
@@ -393,8 +399,10 @@ store, and compare per-question content hashes and snapshot row counts with the 
   the three allowed statuses with evidence attached, and 0 have an unknown status.
 - **SC-002**: 100% of ingested editions have question records or failure records. 0 question
   records lack a valid edition, 0 have missing provenance, and 0 keys lack an official
-  source. These counts are checked automatically on every change.
-- **SC-003**: In a hand-checked, seeded random sample of 50 questions per exam (300 total),
+  source. These counts are checked automatically: by the test suite on every change, and
+  on the real store by an integrity gate that every snapshot must pass.
+- **SC-003**: In a hand-checked, seeded random sample of 50 questions per exam (up to 300
+  total; all of an exam's questions when it has fewer than 50),
   100% match the source in stem, choices, and key. No exam that failed its latest check
   appears in a suite export.
 - **SC-004**: 100% of non-English questions have an English record or a recorded failure
@@ -420,7 +428,10 @@ store, and compare per-question content hashes and snapshot row counts with the 
 - **Delivery constraints from the brief** (decided by the stakeholder; for planning, not
   part of the requirements above): Python 3.13+, asyncio with REST clients, Google
   Programmable Search JSON API for discovery, PySpark for batch jobs, AWS S3 for raw files
-  and Parquet snapshots, Postgres as the live store. The brief's open risk applies: at about
+  and Parquet snapshots, Postgres as the live store. **Two of these were replaced during
+  planning** (Clarifications, planning session): discovery crawls official index pages
+  instead of the search API, and batch work uses pyarrow plus a process pool instead of
+  PySpark. The rest stand. The brief's open risk applies: at about
   10⁴–10⁵ questions, the batch engine needs a defensible reason, and the plan should
   evaluate a pandas fallback. That choice is now a pure engineering trade-off, since FR-032
   removes the dependency-weight rule.
@@ -522,3 +533,23 @@ store, and compare per-question content hashes and snapshot row counts with the 
   search-API constraint.
 - Q: PySpark or a lighter batch engine? → A: pyarrow plus a standard-library process pool.
   At 10⁴–10⁵ questions the only parallel work is per-artifact extraction (research.md R2).
+
+### Session 2026-11-04 (analysis)
+
+Decisions taken to resolve the cross-artifact analysis of spec, plan, and tasks:
+
+- Q: Does FR-014 require a translation record for English-original questions? → A: No.
+  FR-014 covers only English that is not the question's original language. An
+  English-original question's text is its FR-010 content, and copying it would store it
+  twice (FR-016).
+- Q: Is an official English version of a paper its own edition? → A: No. It is an official
+  translation attached to the original edition, so its questions are stored once (as
+  translations) and are never exported or counted twice. An English paper whose questions
+  differ is a separate edition. Official versions in other languages are a known gap.
+- Q: What does FR-019 mean for `snapshot`? → A: An unchanged store with unchanged
+  committed inputs publishes no new version.
+- Q: How are SC-002's counts checked on real data? → A: An integrity gate runs inside every
+  snapshot and refuses to publish if any count is non-zero. An ingested edition that
+  yields no questions gets a failure record, so it can never pass silently.
+- Q: What if an exam has fewer than 50 questions (or a language fewer than 30)? → A: It is
+  checked in full (FR-024, SC-003).
