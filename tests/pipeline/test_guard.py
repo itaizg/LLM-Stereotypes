@@ -374,7 +374,7 @@ class TestCorpusGuard:
 class TestGuardPaths:
     """P4: ``python -m pipeline.corpus DIR`` also scans files git does not track.
 
-    Used on Airflow's task logs (SC-009), which are untracked and may be anything.
+    Used on Dagster's run storage (SC-009), which are untracked and may be anything.
     """
 
     @pytest.fixture
@@ -461,10 +461,15 @@ class TestGuardPaths:
         assert corpus.main([]) == 0  # untracked and not named: not scanned
 
 
-class TestAirflowIsolation:
-    """SC-008, FR-002, FR-020: Airflow never enters the harness or the pipeline."""
+class TestOrchestrationIsolation:
+    """SC-008, FR-002, FR-020: Dagster never enters the harness or the pipeline.
 
-    def test_no_python_file_in_harness_or_pipeline_imports_airflow(self) -> None:
+    Dagster is an optional extra (``orchestration``) used only by ``orchestration/``,
+    which runs the pipeline as a subprocess. The core install and the ``pipeline`` and
+    ``model`` extras stay free of it.
+    """
+
+    def test_no_python_file_in_harness_or_pipeline_imports_dagster(self) -> None:
         offenders: list[str] = []
         for folder in ("harness", "pipeline"):
             for source in sorted((REPO_ROOT / folder).rglob("*.py")):
@@ -476,40 +481,33 @@ class TestAirflowIsolation:
                         names = [node.module]
                     else:
                         continue
-                    if any(n == "airflow" or n.startswith("airflow.") for n in names):
+                    if any(
+                        n in {"dagster", "exam_dagster"}
+                        or n.startswith(("dagster.", "exam_dagster."))
+                        for n in names
+                    ):
                         offenders.append(
                             f"{source.relative_to(REPO_ROOT)}:{node.lineno}"
                         )
         assert offenders == []
 
-    def test_the_lockfile_has_no_airflow_package(self) -> None:
-        lock = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
-
-        assert re.findall(r'(?m)^name = "(apache-airflow[^"]*)"', lock) == []
-
-    def test_pyproject_lists_no_airflow_package_in_any_extra(self) -> None:
+    def test_only_the_orchestration_extra_lists_dagster(self) -> None:
         import tomllib
 
-        project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
-        requirements = [
-            *project["project"].get("dependencies", []),
-            *(
-                r
-                for extra in project["project"]
-                .get("optional-dependencies", {})
-                .values()
-                for r in extra
-            ),
-            *(
-                r
-                for group in project.get("dependency-groups", {}).values()
-                for r in group
-            ),
+        project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))[
+            "project"
         ]
+        listed = {
+            "core": project.get("dependencies", []),
+            **project.get("optional-dependencies", {}),
+        }
+        holders = {
+            name
+            for name, requirements in listed.items()
+            if any("dagster" in r.lower() for r in requirements)
+        }
 
-        assert [
-            r for r in requirements if isinstance(r, str) and "airflow" in r.lower()
-        ] == []
+        assert holders == {"orchestration"}
 
 
 class TestArchitecture:

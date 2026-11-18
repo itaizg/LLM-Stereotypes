@@ -9,13 +9,14 @@ repos:
   # pytest, ...), so it runs through uv in the locked project venv rather
   # than an isolated hook env. It checks the whole project, not just staged
   # files, because a signature change breaks callers in unchanged files. The
-  # pipeline extra is included so pipeline/ imports (psycopg, httpx, ...)
-  # resolve; the harness itself still never imports them.
+  # pipeline and orchestration extras are included so pipeline/ and orchestration/
+  # imports (psycopg, httpx, dagster, ...) resolve; the harness itself never imports
+  # them (constitution amendment A3).
   - repo: local
     hooks:
       - id: ty
         name: ty check
-        entry: uv run --locked --extra dev --extra pipeline ty check
+        entry: uv run --locked --extra dev --extra pipeline --extra orchestration ty check
         language: system
         types: [python]
         pass_filenames: false
