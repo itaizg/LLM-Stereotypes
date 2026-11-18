@@ -49,7 +49,7 @@ it checks tracked files and the samples allowlist. With paths, it also scans eve
 file under them, tracked or not, for corpus text only (the allowlist and binary-suffix
 rules apply to tracked files only), and exits 3 on any hit. A path that does not exist
 exits 2, so a typo cannot pass by scanning nothing. It is how [spec 002](../../002-airflow-orchestration/contracts/pipeline-cli-additions.md)
-(P4) checks Airflow's task logs.
+(P4) checks Dagster's run storage.
 
 ## Exit codes
 
