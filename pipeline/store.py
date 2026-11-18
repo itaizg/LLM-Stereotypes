@@ -347,11 +347,16 @@ def load_host_requests(conn: psycopg.Connection) -> dict[str, float]:
 
 
 def record_host_request(conn: psycopg.Connection, host: str, at_epoch: float) -> None:
-    """Upsert one host's last request time (parameterized, FR-031)."""
+    """Upsert one host's last request time (parameterized, FR-031).
+
+    The stored time never moves backwards: a wall clock that was set back between
+    two commands must not shorten the wait the later time already earned.
+    """
     conn.execute(
         "INSERT INTO host_requests (host, last_request_at) "
         "VALUES (%s, to_timestamp(%s)) "
-        "ON CONFLICT (host) DO UPDATE SET last_request_at = EXCLUDED.last_request_at",
+        "ON CONFLICT (host) DO UPDATE SET last_request_at = "
+        "GREATEST(host_requests.last_request_at, EXCLUDED.last_request_at)",
         (host, at_epoch),
     )
 
@@ -371,5 +376,5 @@ class PostgresHostLedger:
         return self._last.get(host)
 
     def record(self, host: str, at: float) -> None:
-        self._last[host] = at
+        self._last[host] = max(self._last.get(host, at), at)
         record_host_request(self._conn, host, at)

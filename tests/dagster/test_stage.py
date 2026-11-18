@@ -154,3 +154,16 @@ def test_pending_ids_parse_only_candidate_lines() -> None:
     ]
 
     assert stage.pending_ids(lines) == ["src_1", "src_2"]
+
+
+def test_a_stage_that_never_returns_is_killed_and_counted_as_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(stage, "STAGE_TIMEOUT_SECONDS", 0.5)
+
+    done = stage._subprocess_runner(
+        [sys.executable, "-c", "import time; time.sleep(30)"], cwd="."
+    )
+
+    assert done.returncode == 1
+    assert "timed out" in done.stderr
