@@ -20,10 +20,19 @@ subprocess.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import dagster as dg
 
 from exam_dagster import stage
+
+if TYPE_CHECKING:
+    # Dagster returns this type from define_asset_job but does not export it; it is
+    # needed only for the annotation, which is a string (Python 3.13 evaluates
+    # annotations eagerly, 3.14 lazily, and the image runs 3.13).
+    from dagster._core.definitions.unresolved_asset_job_definition import (
+        UnresolvedAssetJobDefinition,
+    )
 
 GROUP = "exam_acquisition"
 
@@ -48,7 +57,7 @@ class AcquisitionAssets:
     catalog: dg.AssetsDefinition
     discovered: dg.AssetsDefinition
     fetched: dg.AssetsDefinition
-    job: dg.UnresolvedAssetJobDefinition
+    job: "UnresolvedAssetJobDefinition"
 
     @property
     def assets(self) -> list[dg.AssetsDefinition]:
