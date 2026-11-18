@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
+from pipeline.store import PostgresHostLedger, load_host_requests
 from pipeline.web import Fetched, Fetcher, extract_links, new_client
 
 if TYPE_CHECKING:
+    import psycopg
     from conftest import FakeClock, Web
 
 HOST = "kice.exams.test"
@@ -47,6 +49,105 @@ def get_all(
 
 def get(web: Web, clock: FakeClock, url: str = URL, **validators: str) -> Fetched:
     return get_all(web, clock, [url], **validators)[0]
+
+
+class TestSpacingAcrossInvocations:
+    """SC-006: the per-host interval holds between two commands, not just within one.
+
+    Each ``Fetcher`` below is one command run. They share a schema, the virtual
+    monotonic clock, and a wall clock derived from it, so nothing waits for real.
+    """
+
+    EPOCH = 1_700_000_000.0  # wall time at virtual time zero
+
+    def wall(self, clock: FakeClock) -> float:
+        return self.EPOCH + clock.now()
+
+    def run_command(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection, url: str = URL
+    ) -> Fetched:
+        """One command: a new Fetcher with its own ledger, which reads the table."""
+
+        async def go() -> Fetched:
+            async with web.client() as client:
+                fetcher = Fetcher(
+                    client,
+                    clock,
+                    lambda _host: INTERVAL,
+                    PostgresHostLedger(db),
+                    lambda: self.wall(clock),
+                )
+                return await fetcher.get(url, ALLOWED)
+
+        return asyncio.run(go())
+
+    def test_the_next_command_waits_out_the_rest_of_the_interval(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection
+    ) -> None:
+        self.run_command(web, clock, db)
+        last = web.calls[-1][1]
+        clock.advance(2)
+        slept = len(clock.sleeps)
+        assert self.run_command(web, clock, db, OTHER).outcome == "http_error"
+        # The first request of the second command is robots.txt.
+        assert web.calls[len(web.calls) - 2] == (ROBOTS, last + INTERVAL)
+        assert clock.sleeps[slept] == INTERVAL - 2
+
+    def test_a_host_used_longer_ago_than_the_interval_is_not_delayed(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection
+    ) -> None:
+        self.run_command(web, clock, db)
+        clock.advance(INTERVAL + 1)
+        slept = len(clock.sleeps)
+        self.run_command(web, clock, db, OTHER)
+        # Only the in-process wait between robots.txt and the page remains.
+        assert clock.sleeps[slept:] == [INTERVAL]
+
+    def test_a_last_request_in_the_future_counts_as_now(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection
+    ) -> None:
+        db.execute(
+            "INSERT INTO host_requests VALUES (%s, to_timestamp(%s))",
+            (HOST, self.wall(clock) + 3600),
+        )
+        self.run_command(web, clock, db)
+        # One interval before robots.txt (not an hour), then the in-process one.
+        assert clock.sleeps == [INTERVAL, INTERVAL]
+
+    def test_another_host_is_not_delayed(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection
+    ) -> None:
+        db.execute(
+            "INSERT INTO host_requests VALUES (%s, to_timestamp(%s))",
+            ("other.exams.test", self.wall(clock)),
+        )
+        self.run_command(web, clock, db)
+        # Only the in-process wait between robots.txt and the page.
+        assert clock.sleeps == [INTERVAL]
+
+    def test_robots_txt_requests_are_recorded(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection
+    ) -> None:
+        web.add(ROBOTS, "User-agent: *\nDisallow: /", headers={})
+        assert self.run_command(web, clock, db).outcome == "refused_robots"
+        assert web.urls() == [ROBOTS]
+        assert load_host_requests(db)[HOST] == pytest.approx(self.wall(clock))
+
+    def test_retried_requests_are_recorded(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection
+    ) -> None:
+        web.add_sequence(URL, (503, {}, b""), (200, {}, b"ok"))
+        assert self.run_command(web, clock, db).outcome == "fetched"
+        assert len(web.times(URL)) == 2
+        assert load_host_requests(db)[HOST] == pytest.approx(
+            self.EPOCH + web.times(URL)[-1]
+        )
+
+    def test_without_a_ledger_nothing_is_stored(
+        self, web: Web, clock: FakeClock, db: psycopg.Connection
+    ) -> None:
+        get(web, clock)
+        assert load_host_requests(db) == {}
 
 
 class TestBackoff:

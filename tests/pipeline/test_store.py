@@ -33,7 +33,9 @@ from pipeline.store import (
     apply_schema,
     connect,
     insert_if_new,
+    load_host_requests,
     reconcile,
+    record_host_request,
     redact,
     write_lock,
 )
@@ -231,6 +233,23 @@ def _count(conn: psycopg.Connection, table: str) -> int:
 
 
 class TestStore:
+    def test_apply_schema_adds_host_requests_to_an_older_database(
+        self, db: psycopg.Connection
+    ) -> None:
+        db.execute("DROP TABLE host_requests")
+        assert apply_schema(db) is True
+        assert db.execute("SELECT count(*) FROM host_requests").fetchone() == (0,)
+        assert apply_schema(db) is False
+
+    def test_host_requests_round_trip_and_upsert(self, db: psycopg.Connection) -> None:
+        record_host_request(db, "a.test", 1_700_000_000.5)
+        record_host_request(db, "a.test", 1_700_000_010.25)
+        record_host_request(db, "b.test", 1_700_000_001.0)
+        assert load_host_requests(db) == {
+            "a.test": 1_700_000_010.25,
+            "b.test": 1_700_000_001.0,
+        }
+
     def test_apply_schema_is_idempotent(self, test_dsn: str) -> None:
         schema = f"t_{uuid.uuid4().hex}"
         with psycopg.connect(test_dsn, autocommit=True) as admin:

@@ -31,6 +31,7 @@ __all__ = [
     "Clock",
     "Fetched",
     "Fetcher",
+    "HostLedger",
     "SystemClock",
     "decode_html",
     "extract_links",
@@ -72,6 +73,18 @@ class SystemClock:
 
     async def sleep(self, seconds: float) -> None:
         await asyncio.sleep(seconds)
+
+
+class HostLedger(Protocol):
+    """Where each host's last request time is kept between commands (SC-006).
+
+    Times are wall-clock epoch seconds: a monotonic clock means nothing to the
+    next process. The Postgres-backed one is in ``store.py``.
+    """
+
+    def last(self, host: str) -> float | None: ...
+
+    def record(self, host: str, at: float) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -116,6 +129,9 @@ class Fetcher:
     """GET with the allowlist, robots.txt, redirect, and rate-limit rules applied.
 
     One instance per command run, so robots.txt is fetched once per domain.
+    Within a run, spacing uses the monotonic ``clock``. Across runs it uses the
+    optional ``ledger`` and the wall clock: the first request to a host waits out
+    whatever is left of the interval since the previous command's last request.
     """
 
     def __init__(
@@ -123,10 +139,14 @@ class Fetcher:
         client: httpx.AsyncClient,
         clock: Clock,
         interval: Callable[[str], float],
+        ledger: HostLedger | None = None,
+        wall: Callable[[], float] = time.time,
     ) -> None:
         self._client = client
         self._clock = clock
         self._interval = interval
+        self._ledger = ledger
+        self._wall = wall
         self._locks: dict[str, asyncio.Lock] = {}
         self._last: dict[str, float] = {}
         # Set by Retry-After or backoff: no request to the host before this time.
@@ -143,6 +163,14 @@ class Fetcher:
             last = self._last.get(host)
             if last is not None:
                 ready = max(ready, last + self._interval(host))
+            elif self._ledger is not None:
+                previous = self._ledger.last(host)
+                if previous is not None:
+                    # A time in the future (clock skew) counts as now.
+                    elapsed = max(0.0, self._wall() - previous)
+                    ready = max(
+                        ready, self._clock.now() + self._interval(host) - elapsed
+                    )
             wait = ready - self._clock.now()
             if wait > 0:
                 await self._clock.sleep(wait)
@@ -152,6 +180,8 @@ class Fetcher:
                 )
             finally:
                 self._last[host] = self._clock.now()
+                if self._ledger is not None:
+                    self._ledger.record(host, self._wall())
 
     async def _polite_get(
         self, url: str, headers: dict[str, str] | None = None
