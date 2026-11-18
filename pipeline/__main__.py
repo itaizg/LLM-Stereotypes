@@ -27,6 +27,8 @@ from pipeline.store import (
     ConnectionFailed,
     IntegrityRefusal,
     LockHeld,
+    PostgresHostLedger,
+    apply_schema,
     connect,
     redact,
     write_lock,
@@ -71,6 +73,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser(
         "catalog", parents=[common], help="load and validate the catalog"
+    )
+
+    commands.add_parser(
+        "exams", parents=[common], help="list the exams in the catalog (read-only)"
+    )
+    commands.add_parser(
+        "candidates", parents=[common], help="list candidates awaiting review"
     )
 
     discover = commands.add_parser(
@@ -160,15 +169,49 @@ def writing() -> Generator[psycopg.Connection]:
         conn.close()
 
 
+def _host_ledger(conn: psycopg.Connection) -> PostgresHostLedger:
+    """The request-spacing ledger, creating the schema first if it is not there.
+
+    ``discover`` and ``fetch`` can run before ``catalog`` has ever applied the
+    schema, or against a database made before ``host_requests`` existed.
+    """
+    apply_schema(conn)
+    return PostgresHostLedger(conn)
+
+
 def _catalog(args: argparse.Namespace) -> int:
     with writing() as conn:
         print(acquire.run_catalog(conn, Path(args.catalog), Path(args.ledger)).line())
     return EXIT_OK
 
 
+def _exams(args: argparse.Namespace) -> int:
+    """Print the exam ids; read-only, so it takes no lock and needs no database."""
+    if args.exam or args.edition:
+        raise UsageError("exams lists every exam; --exam and --edition do not apply")
+    exams = sorted(load_catalog(Path(args.catalog)).exams)
+    print(*exams, f"exams: count={len(exams)}", sep="\n")
+    return EXIT_OK
+
+
+def _candidates(args: argparse.Namespace) -> int:
+    """Print the pending candidates; ids and domains only, never a URL path."""
+    if args.edition:
+        raise UsageError("candidates filters by --exam; --edition does not apply")
+    catalog = load_catalog(Path(args.catalog))
+    try:
+        pending = acquire.pending_candidates(catalog, Path(args.ledger), args.exam)
+    except ValueError as error:
+        raise UsageError(str(error)) from None
+    for exam_id, source_id, domain in pending:
+        print(f"candidate {source_id} exam={exam_id} domain={domain}")
+    print(f"candidates: pending={len(pending)}")
+    return EXIT_OK
+
+
 def _discover(args: argparse.Namespace) -> int:
     catalog = load_catalog(Path(args.catalog))
-    with writing():
+    with writing() as conn:
         if args.add_url:
             if not args.edition:
                 raise UsageError("--add-url needs --edition (it selects the allowlist)")
@@ -191,6 +234,7 @@ def _discover(args: argparse.Namespace) -> int:
                     web.SystemClock(),
                     at=_now(),
                     exam=args.exam,
+                    hosts=_host_ledger(conn),
                 )
 
         summary = asyncio.run(crawl())
@@ -231,7 +275,7 @@ def _review(args: argparse.Namespace) -> int:
 
 def _fetch(args: argparse.Namespace) -> int:
     catalog = load_catalog(Path(args.catalog))
-    with writing():
+    with writing() as conn:
 
         async def run() -> acquire.FetchSummary:
             async with web.new_client() as client:
@@ -245,6 +289,7 @@ def _fetch(args: argparse.Namespace) -> int:
                     exam=args.exam,
                     refresh=args.refresh,
                     source_ids=args.source_ids,
+                    hosts=_host_ledger(conn),
                 )
 
         try:
@@ -261,6 +306,8 @@ def _fetch(args: argparse.Namespace) -> int:
 # Stages register here as they are implemented; the table is the dispatch.
 HANDLERS: dict[str, Handler] = {
     "catalog": _catalog,
+    "exams": _exams,
+    "candidates": _candidates,
     "discover": _discover,
     "review": _review,
     "fetch": _fetch,

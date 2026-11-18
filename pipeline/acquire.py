@@ -39,7 +39,7 @@ from pipeline.manifests import (
     validate_catalog,
 )
 from pipeline.store import Counts, StageSummary, apply_schema, reconcile
-from pipeline.web import Clock, Fetched, Fetcher, extract_links
+from pipeline.web import Clock, Fetched, Fetcher, HostLedger, extract_links
 
 __all__ = [
     "CatalogError",
@@ -359,6 +359,7 @@ async def discover(
     *,
     at: str,
     exam: str | None = None,
+    hosts: HostLedger | None = None,
 ) -> DiscoverSummary:
     """Crawl each exam's official index pages and record every link as a candidate.
 
@@ -369,7 +370,7 @@ async def discover(
     state = replay_ledger(read_ledger(ledger_path))
     known = set(state.sources)
     latest = {sid: s.fetches[-1] for sid, s in state.sources.items() if s.fetches}
-    fetcher = Fetcher(client, clock, interval_for(catalog))
+    fetcher = Fetcher(client, clock, interval_for(catalog), hosts)
     seeds_fetched = added = rejected = refused = 0
     for exam_id in sorted(catalog.exams):
         if exam is not None and exam_id != exam:
@@ -411,6 +412,30 @@ async def discover(
                 added += 1
                 rejected += fields["auto_decision"] is not None
     return DiscoverSummary(seeds_fetched, added, rejected, refused)
+
+
+def pending_candidates(
+    catalog: Catalog, ledger_path: Path, exam: str | None = None
+) -> list[tuple[str, str, str]]:
+    """Candidates nobody has reviewed yet, as ``(exam_id, source_id, domain)``.
+
+    A candidate belongs to every exam whose catalog ``domains`` list its domain,
+    and appears once per such exam. That one rule covers crawled and manual
+    candidates alike: a manual candidate's event does not record the edition it
+    was added for, and a pending candidate is always on some allowlist, since an
+    off-allowlist link is rejected when it is found. Sorted, so the output is
+    deterministic. It only reads the ledger.
+    """
+    if exam is not None and exam not in catalog.exams:
+        raise ValueError(f"unknown exam: {exam}")
+    sources = replay_ledger(read_ledger(ledger_path)).sources.values()
+    return sorted(
+        (exam_id, source.source_id, source.domain)
+        for source in sources
+        if source.decision == "pending"
+        for exam_id, entry in catalog.exams.items()
+        if source.domain in entry.domains and exam in (None, exam_id)
+    )
 
 
 def add_manual_url(
@@ -456,6 +481,7 @@ async def fetch(
     exam: str | None = None,
     refresh: bool = False,
     source_ids: Sequence[str] = (),
+    hosts: HostLedger | None = None,
 ) -> FetchSummary:
     """Fetch approved sources, storing each file once under its content hash.
 
@@ -468,7 +494,7 @@ async def fetch(
     state = replay_ledger(read_ledger(ledger_path))
     edition_exam = {e.edition_id: e.exam_id for e in catalog.editions}
     latest = {sid: s.fetches[-1] for sid, s in state.sources.items() if s.fetches}
-    fetcher = Fetcher(client, clock, interval_for(catalog))
+    fetcher = Fetcher(client, clock, interval_for(catalog), hosts)
     unknown = [sid for sid in source_ids if sid not in state.sources]
     if unknown:
         raise ValueError(f"unknown candidate: {unknown[0]}")

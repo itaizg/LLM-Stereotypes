@@ -29,6 +29,7 @@ Each table has exactly one writing stage:
 | `extraction_failures` | the stage named in the row's `stage` column; each stage reconciles only its own rows | reconcile per (edition, stage) |
 | `exam_checks` | `catalog` (replays ledger `handcheck` events; `snapshot` runs `catalog` first) | reconcile with ledger |
 | `snapshots` | `snapshot` | append-only |
+| `host_requests` | `discover` and `fetch` (the request-sending commands) | upsert per host; operational state, see below |
 
 **Reconcile** means: compute the full set of rows this stage owns for one edition from its
 inputs, then insert missing rows, update rows whose `content_hash` changed, and remove
@@ -268,6 +269,18 @@ snapshot holds (research R11), so an unchanged store produces no new version (FR
 This is the registry of published snapshots. It is the one table a
 snapshot does not copy, because its own row is written only after the snapshot is
 published (research R11).
+
+### `host_requests` (operational state)
+
+`host` (PK, lower-case hostname), `last_request_at` (timestamptz): when the host last
+received any request, `robots.txt` and retries included. It is how the per-host rate
+limit (FR-012) holds between two commands: `Fetcher` reads it when it starts, waits out
+the rest of the interval before the first request to a host, and upserts the row after
+every request. A time in the future (clock skew) counts as now.
+
+It is not dataset content. `rebuild` does not recreate it, no snapshot copies it, and
+losing it costs at most one interval wait per host. It holds hostnames and times only.
+Added by [spec 002](../002-airflow-orchestration/data-model.md) (P3).
 
 ## View: `questions_flat` (FR-017)
 
