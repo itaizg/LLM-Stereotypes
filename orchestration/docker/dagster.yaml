@@ -1,0 +1,23 @@
+# Instance config for the compose stack (contracts/stack.md): run history in Postgres
+# (database `dagster`, which only the `dagster` role can open) and a run queue so a
+# backfill's runs wait their turn. The pool limit keeps one writer at a time.
+storage:
+  postgres:
+    postgres_db:
+      username: dagster
+      password:
+        env: DAGSTER_DB_PASSWORD
+      hostname: postgres
+      db_name: dagster
+      port: 5432
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+
+concurrency:
+  pools:
+    default_limit: 1
+
+telemetry:
+  enabled: false

@@ -1,9 +1,9 @@
 """Per-exam stage runs equal one all-exam run (spec 002, SC-001 and SC-011).
 
-The Airflow DAG cannot run in the same interpreter as the pipeline, so its claim
-"the same work as a hand run" is checked in two halves that share one file,
-``tests/fixtures/airflow_acquisition_argv.json``: ``tests/airflow`` asserts the DAG
-issues exactly those commands, and this module runs those commands through the CLI
+The Dagster assets run the pipeline as a subprocess, so their claim "the same work as
+a hand run" is checked in two halves that share one file,
+``tests/fixtures/orchestration_acquisition_argv.json``: ``tests/dagster`` asserts the
+assets issue exactly those commands, and this module runs those commands through the CLI
 and compares them with what a maintainer would type.
 """
 
@@ -27,7 +27,9 @@ if TYPE_CHECKING:
     from conftest import DatasetBuilder, FakeClock, Web
 
 ARGV_FILE = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "airflow_acquisition_argv.json"
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "orchestration_acquisition_argv.json"
 )
 HAND_RUN = [["catalog"], ["discover"], ["fetch"]]
 
