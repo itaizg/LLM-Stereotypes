@@ -276,6 +276,10 @@ def _files_under(path: Path) -> Iterator[Path]:
     """Every regular file under ``path`` (or ``path`` itself), symlinks not followed."""
     if not path.exists():
         raise FileNotFoundError(f"no such path: {path}")
+    if path.is_symlink() and path.is_file():
+        # is_file() follows links; yielding the target would scan outside the path
+        # that was asked for.
+        raise ValueError(f"not scanning a symlink: {path}")
     if path.is_file():
         yield path
         return

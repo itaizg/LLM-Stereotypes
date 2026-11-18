@@ -424,6 +424,14 @@ class TestGuardPaths:
 
         assert [h.kind for h in hits] == ["corpus_text"]
 
+    def test_a_symlink_to_a_file_is_refused_not_followed(self, root: Path) -> None:
+        (root / "elsewhere").mkdir()
+        (root / "elsewhere" / "x.log").write_text(LONG_EN, encoding="utf-8")
+        (root / "link.log").symlink_to(root / "elsewhere" / "x.log")
+
+        with pytest.raises(ValueError, match="symlink"):
+            corpus.scan(root, [root / "link.log"])
+
     def test_a_missing_path_is_an_error_not_a_pass(self, root: Path) -> None:
         with pytest.raises(FileNotFoundError):
             corpus.scan(root, [root / "no-such-dir"])

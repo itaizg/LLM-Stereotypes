@@ -18,7 +18,7 @@ feeds it the exams the catalog lists, and tests feed it a fixed list without a
 subprocess.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -95,7 +95,9 @@ def build_assets(
         ],
         description="Candidate URLs for one exam, and the ones still awaiting review.",
     )
-    def discovered(context: dg.AssetExecutionContext):
+    def discovered(
+        context: dg.AssetExecutionContext,
+    ) -> Iterator[dg.MaterializeResult | dg.AssetCheckResult]:
         exam = context.partition_key
         found = stage.run_stage(
             ["discover", "--exam", exam], exam=exam, logger=context.log

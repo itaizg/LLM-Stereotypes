@@ -250,6 +250,13 @@ class TestStore:
             "b.test": 1_700_000_001.0,
         }
 
+    def test_host_request_time_never_moves_backwards(
+        self, db: psycopg.Connection
+    ) -> None:
+        record_host_request(db, "a.test", 1_700_000_100.0)
+        record_host_request(db, "a.test", 1_700_000_050.0)  # the clock was set back
+        assert load_host_requests(db) == {"a.test": 1_700_000_100.0}
+
     def test_apply_schema_is_idempotent(self, test_dsn: str) -> None:
         schema = f"t_{uuid.uuid4().hex}"
         with psycopg.connect(test_dsn, autocommit=True) as admin:

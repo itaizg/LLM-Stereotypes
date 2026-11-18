@@ -174,6 +174,10 @@ class Fetcher:
             wait = ready - self._clock.now()
             if wait > 0:
                 await self._clock.sleep(wait)
+            if self._ledger is not None:
+                # Reserve the slot before sending: a process killed mid-request
+                # leaves this time behind, so the next command still waits.
+                self._ledger.record(host, self._wall())
             try:
                 return await self._client.get(
                     url, headers={"User-Agent": USER_AGENT, **(headers or {})}

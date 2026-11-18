@@ -28,6 +28,12 @@ RETRY_POLICY = dg.RetryPolicy(max_retries=2, delay=180)
 
 EXIT_RETRY = frozenset({1, 4})
 
+# A stage that never returns would hold the one writer slot forever and never reach the
+# retry policy. Six hours is far above the longest polite fetch; a stage that exceeds it
+# is killed and counted as an unexpected failure (exit 1, retried). Stages resume, so a
+# retry loses only the unfinished item.
+STAGE_TIMEOUT_SECONDS = 6 * 60 * 60
+
 
 def project_root() -> str:
     """``PIPELINE_PROJECT`` (compose mounts the repo there), else this checkout."""
@@ -67,12 +73,30 @@ class Runner(Protocol):
     def __call__(self, command: Sequence[str], *, cwd: str) -> Completed: ...
 
 
+def _text(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    return output if isinstance(output, str) else output.decode("utf-8", "replace")
+
+
 def _subprocess_runner(command: Sequence[str], *, cwd: str) -> Completed:
     # The environment is inherited unchanged: the DSN and tokens reach the pipeline
     # only through it, and are never read or logged here (FR-015).
-    proc = subprocess.run(
-        list(command), cwd=cwd, capture_output=True, text=True, check=False
-    )
+    # The command is a fixed argv list built from constants and catalog exam ids (no
+    # shell), so there is nothing to inject into.
+    try:
+        proc = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
+            list(command),
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=STAGE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run has already killed the child, which releases its write lock.
+        stderr = _text(exc.stderr) + f"stage timed out after {STAGE_TIMEOUT_SECONDS}s\n"
+        return Completed(1, _text(exc.stdout), stderr)
     return Completed(proc.returncode, proc.stdout, proc.stderr)
 
 

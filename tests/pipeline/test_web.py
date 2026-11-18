@@ -150,6 +150,38 @@ class TestSpacingAcrossInvocations:
         assert load_host_requests(db) == {}
 
 
+class SpyLedger:
+    """A ledger that notes how many requests had been sent at each ``record``."""
+
+    def __init__(self, web: Web) -> None:
+        self._web = web
+        self.sent_at_record: list[int] = []
+
+    def last(self, host: str) -> float | None:
+        return None
+
+    def record(self, host: str, at: float) -> None:
+        self.sent_at_record.append(len(self._web.calls))
+
+
+class TestReservation:
+    def test_the_slot_is_recorded_before_each_request_is_sent(
+        self, web: Web, clock: FakeClock
+    ) -> None:
+        """A process killed mid-request must leave a time for the next command."""
+        ledger = SpyLedger(web)
+
+        async def go() -> Fetched:
+            async with web.client() as client:
+                fetcher = Fetcher(client, clock, lambda _host: INTERVAL, ledger)
+                return await fetcher.get(URL, ALLOWED)
+
+        asyncio.run(go())
+        # Two requests (robots.txt, then the page). Each is preceded by a record made
+        # while it is unsent, and followed by one made once it has been sent.
+        assert ledger.sent_at_record == [0, 1, 1, 2]
+
+
 class TestBackoff:
     def test_a_429_waits_for_retry_after_then_succeeds(
         self, web: Web, clock: FakeClock
