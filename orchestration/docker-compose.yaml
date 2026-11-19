@@ -27,7 +27,8 @@ services:
       DAGSTER_DB_PASSWORD: ${DAGSTER_DB_PASSWORD}
       PIPELINE_DB_PASSWORD: ${PIPELINE_DB_PASSWORD:?set PIPELINE_DB_PASSWORD in orchestration/.env}
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host port for `dagster dev` on the Mac; set PIPELINE_PG_PORT if 5432 is taken.
+      - "127.0.0.1:${PIPELINE_PG_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
