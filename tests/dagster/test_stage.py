@@ -167,3 +167,63 @@ def test_a_stage_that_never_returns_is_killed_and_counted_as_a_failure(
 
     assert done.returncode == 1
     assert "timed out" in done.stderr
+
+
+def test_the_failure_message_carries_the_first_stderr_line(
+    fake_runner: FakeRunner,
+) -> None:
+    fake_runner.script[("catalog",)] = (
+        3,
+        "",
+        "refused: exam sat: keys_evidence must cite an approved source\nsecond line\n",
+    )
+
+    with pytest.raises(dg.Failure) as info:
+        stage.run_stage(["catalog"])
+
+    assert info.value.description == (
+        "pipeline catalog exited 3: "
+        "refused: exam sat: keys_evidence must cite an approved source"
+    )
+
+
+def test_a_retryable_failure_carries_the_reason_too(fake_runner: FakeRunner) -> None:
+    fake_runner.script[("fetch",)] = (1, "", "\n  error: connection failed\n")
+
+    with pytest.raises(stage.RetryableStageError, match="exited 1: error: connection"):
+        stage.run_stage(["fetch"])
+
+
+def test_a_very_long_reason_is_cut(fake_runner: FakeRunner) -> None:
+    fake_runner.script[("catalog",)] = (3, "", "refused: " + "x" * 5000)
+
+    with pytest.raises(dg.Failure) as info:
+        stage.run_stage(["catalog"])
+
+    assert len(info.value.description or "") < 400
+    assert (info.value.description or "").endswith("…")
+
+
+def test_a_url_password_in_stderr_is_masked_in_the_message(
+    fake_runner: FakeRunner,
+) -> None:
+    fake_runner.script[("catalog",)] = (
+        1,
+        "",
+        "error: bad connection string postgresql://pipeline:SENTINEL-PASSWORD@db/x",
+    )
+
+    with pytest.raises(stage.RetryableStageError) as info:
+        stage.run_stage(["catalog"])
+
+    assert "SENTINEL-PASSWORD" not in str(info.value)
+    assert "postgresql://pipeline:***@db/x" in str(info.value)
+
+
+def test_no_stderr_leaves_the_message_unchanged(fake_runner: FakeRunner) -> None:
+    fake_runner.script[("fetch",)] = (2, "", "")
+
+    with pytest.raises(dg.Failure) as info:
+        stage.run_stage(["fetch"])
+
+    assert info.value.description == "pipeline fetch exited 2"
