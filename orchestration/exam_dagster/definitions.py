@@ -1,6 +1,6 @@
 """The Dagster code location.
 
-    dagster dev -m exam_dagster.definitions -d orchestration
+    orchestration/dev.sh      (or: dagster dev -m exam_dagster.definitions -d orchestration)
 
 No schedules and no sensors: runs are manual. The partitions are the exams in the
 catalog when these definitions load (see ``assets.load_exam_ids``).

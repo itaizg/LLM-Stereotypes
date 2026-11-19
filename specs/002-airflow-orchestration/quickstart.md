@@ -45,6 +45,13 @@ uv run pytest tests/pipeline/test_guard.py -q # harness/pipeline never import Da
 
 ```bash
 export PIPELINE_DSN="postgresql://pipeline:<password>@localhost:5432/pipeline"
+orchestration/dev.sh
+```
+
+`dev.sh` is this, so use it instead of a bare `dagster dev` (which has no code to load,
+and without `DAGSTER_HOME` has no writer-pool limit):
+
+```bash
 DAGSTER_HOME=$PWD/orchestration/dagster_home \
   uv run dagster dev -m exam_dagster.definitions -d orchestration
 ```
