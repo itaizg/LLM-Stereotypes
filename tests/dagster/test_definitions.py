@@ -70,14 +70,31 @@ class TestLoading:
         assert keys is not None
         assert keys.get_partition_keys() == ["a", "b"]
 
-    def test_the_job_covers_the_three_assets(self, defs: dg.Definitions) -> None:
+    def test_the_acquisition_job_covers_the_exam_assets_only(
+        self, defs: dg.Definitions
+    ) -> None:
         job = defs.resolve_job_def("exam_acquisition")
 
         assert {k.to_user_string() for k in job.asset_layer.executable_asset_keys} == {
-            "catalog",
             "discovered",
             "fetched",
         }
+
+    def test_the_catalog_is_validated_by_its_own_job(
+        self, defs: dg.Definitions
+    ) -> None:
+        job = defs.resolve_job_def("validate_catalog")
+
+        assert {k.to_user_string() for k in job.asset_layer.executable_asset_keys} == {
+            "catalog"
+        }
+
+    def test_discovery_does_not_depend_on_the_catalog_asset(
+        self, defs: dg.Definitions
+    ) -> None:
+        graph = defs.resolve_asset_graph()
+
+        assert graph.get(dg.AssetKey("discovered")).parent_keys == set()
 
     def test_it_is_manual_no_schedules_and_no_sensors(
         self, defs: dg.Definitions

@@ -110,9 +110,10 @@ class TestGuards:
         assert not result.success
         assert [a[0] for a in fake_runner.argvs] == ["catalog"]
 
-    def test_a_failed_catalog_blocks_the_exams_when_run_together(
+    def test_a_failed_catalog_does_not_block_the_exams(
         self, fake_runner: FakeRunner
     ) -> None:
+        """Discovery must work on an incomplete catalog: that completes it."""
         fake_runner.script[("catalog",)] = (3, "", "refused: catalog invalid")
         built = build_assets(["a"], retry_policy=FAST)
 
@@ -123,8 +124,13 @@ class TestGuards:
             raise_on_error=False,
         )
 
-        assert not result.success
-        assert [a[0] for a in fake_runner.argvs] == ["catalog"]
+        assert not result.success  # the catalog step failed
+        assert {a[0] for a in fake_runner.argvs} == {
+            "catalog",
+            "discover",
+            "candidates",
+            "fetch",
+        }
 
 
 class TestFailures:

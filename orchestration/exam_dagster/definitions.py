@@ -17,4 +17,6 @@ from exam_dagster.assets import build_assets, load_exam_ids
 
 _acquisition = build_assets(load_exam_ids())
 
-defs = dg.Definitions(assets=_acquisition.assets, jobs=[_acquisition.job])
+defs = dg.Definitions(
+    assets=_acquisition.assets, jobs=[_acquisition.job, _acquisition.catalog_job]
+)

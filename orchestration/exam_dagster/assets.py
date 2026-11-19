@@ -4,7 +4,13 @@ It holds no stage logic (FR-001): every asset is one or two pipeline commands th
 ``stage.run_stage``. What Dagster adds is order, one isolated partition per exam, and a
 warning while candidates wait for a human review. Contract: contracts/assets.md.
 
-    catalog ─► discovered[exam] ─► fetched[exam]
+    catalog                 (validation, run on its own)
+    discovered[exam] ─► fetched[exam]
+
+``catalog`` is deliberately not upstream of the exam assets. Only that stage needs a
+complete catalog (approved key evidence, an edition per cell), and the evidence can
+only come from ``discover`` and a review, so gating discovery on it would make a new
+catalog impossible to complete. ``discover`` and ``fetch`` need a catalog that loads.
 
 The data stays in the pipeline's own store, so there is no IO manager and nothing is
 pickled: an asset's "value" is the metadata it reports (counts and ids, never corpus
@@ -58,6 +64,7 @@ class AcquisitionAssets:
     discovered: dg.AssetsDefinition
     fetched: dg.AssetsDefinition
     job: "UnresolvedAssetJobDefinition"
+    catalog_job: "UnresolvedAssetJobDefinition"
 
     @property
     def assets(self) -> list[dg.AssetsDefinition]:
@@ -83,7 +90,6 @@ def build_assets(
     @dg.asset(
         group_name=GROUP,
         partitions_def=partitions,
-        deps=[catalog],
         pool=stage.PIPELINE_WRITER,
         retry_policy=retry_policy,
         check_specs=[
@@ -144,7 +150,12 @@ def build_assets(
 
     job = dg.define_asset_job(
         "exam_acquisition",
-        selection=dg.AssetSelection.groups(GROUP),
+        selection=dg.AssetSelection.assets(discovered, fetched),
         description="Launch a backfill over the exams to run (all, or only some).",
     )
-    return AcquisitionAssets(partitions, catalog, discovered, fetched, job)
+    catalog_job = dg.define_asset_job(
+        "validate_catalog",
+        selection=dg.AssetSelection.assets(catalog),
+        description="Validate the whole catalog and write it to the database.",
+    )
+    return AcquisitionAssets(partitions, catalog, discovered, fetched, job, catalog_job)

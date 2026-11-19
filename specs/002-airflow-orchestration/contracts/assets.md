@@ -37,17 +37,22 @@ What the maintainer and the tests can rely on. The code location is `orchestrati
 
 ## `exam_acquisition`
 
-Group of three assets, partitioned by exam, plus the job `exam_acquisition` that selects the
-group. Trigger: manual, from the UI (Materialize, or Launch backfill over the chosen
-partitions) or `dagster job backfill`.
+Three assets, plus two jobs: `exam_acquisition` (`discovered` and `fetched`, partitioned by
+exam) and `validate_catalog` (`catalog`). Trigger: manual, from the UI (Materialize, or
+Launch backfill over the chosen partitions) or `dagster job backfill`.
 
 ```text
-catalog ──► discovered[exam] ──► fetched[exam]
+catalog                                  (run on its own)
+discovered[exam] ──► fetched[exam]
 ```
+
+`catalog` is **not** upstream of the exam assets (decision D7 in `research.md`): it is the
+only stage that needs a complete catalog, and completing the catalog needs `discover` and a
+review first. `discover` and `fetch` need only a catalog that parses.
 
 | Asset | Partitioned | Command(s) | Pool | Metadata | Outcome rules |
 |-------|-------------|------------|------|----------|---------------|
-| `catalog` | no | `catalog` | `pipeline_writer` | `summary` | Exit 3 (invalid catalog) fails it, and nothing downstream runs (US1 scenario 3). |
+| `catalog` | no | `catalog` | `pipeline_writer` | `summary` | Exit 3 (invalid catalog) fails it, with no retry. It blocks nothing: the exam assets do not depend on it. |
 | `discovered` | exam | `discover --exam X`, then `candidates --exam X` | `pipeline_writer` | `summary`, `pending_count`, `pending_ids` | Also yields the check `pending_review`. Logs a WARNING `pending candidates for X: N (id, id, …)` when N > 0 (FR-007). |
 | `fetched` | exam | `fetch --exam X` | `pipeline_writer` | `summary` | Fetch records refusals and HTTP errors in the ledger and still exits 0, so the step succeeds (edge case). |
 
