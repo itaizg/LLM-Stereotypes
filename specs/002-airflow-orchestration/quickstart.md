@@ -44,9 +44,15 @@ uv run pytest tests/pipeline/test_guard.py -q # harness/pipeline never import Da
 **On the Mac:**
 
 ```bash
-export PIPELINE_DSN="postgresql://pipeline:<password>@localhost:5432/pipeline"
+# Postgres: only its compose service (fill orchestration/.env first; set
+# PIPELINE_PG_PORT there if 5432 is already used by another container).
+docker compose -f orchestration/docker-compose.yaml up -d postgres
+export PIPELINE_DSN="postgresql://pipeline:<PIPELINE_DB_PASSWORD>@localhost:5432/pipeline"
 orchestration/dev.sh
 ```
+
+Use your `PIPELINE_PG_PORT` in the DSN if you set one. Check the connection first with
+`uv run python -m pipeline catalog` (exit 1 there means the database refused you).
 
 `dev.sh` is this, so use it instead of a bare `dagster dev` (which has no code to load,
 and without `DAGSTER_HOME` has no writer-pool limit):
