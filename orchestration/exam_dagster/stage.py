@@ -152,9 +152,31 @@ def run_stage_output(
         )
         return result, done.stdout.splitlines()
     message = f"pipeline {stage} exited {done.returncode}"
+    if reason := _reason(done.stderr):
+        message = f"{message}: {reason}"
     if done.returncode in EXIT_RETRY:
         raise RetryableStageError(message)
     raise dg.Failure(description=message, allow_retries=False)
+
+
+REASON_LIMIT = 300
+
+# A connection URL's password, in case an error message quotes one (``://user:secret@``).
+_URL_PASSWORD = re.compile(r"(://[^/\s:@]*:)[^/\s]*@")
+
+
+def _reason(stderr: str) -> str:
+    """The first line the stage printed on stderr, for the failure message.
+
+    The step log already holds all of stderr; this puts the headline where the run
+    page shows it, so "exited 3" says why. One line, cut to ``REASON_LIMIT``, with
+    any URL password masked (FR-015), since the message is stored with the run.
+    """
+    for line in stderr.splitlines():
+        text = _URL_PASSWORD.sub(r"\1***@", line.strip())
+        if text:
+            return text if len(text) <= REASON_LIMIT else text[: REASON_LIMIT - 1] + "…"
+    return ""
 
 
 # The only lines the assets parse (contracts/pipeline-cli-additions.md). Changing one
