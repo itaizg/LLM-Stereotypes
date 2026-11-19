@@ -35,6 +35,15 @@ the acquisition stages only, locally: `dagster dev` on the Mac or the compose st
 - [ ] **Orchestrate harness runs with Dagster.** Run `harness run`, `report` and `compare`
   as jobs, for example when a new suite bank is exported. Keep the harness free of Dagster
   imports, as for the pipeline.
+- [ ] **Get the catalog to pass validation.** `pipeline catalog` exits 3 today: every
+  exam's `keys_evidence` must cite an approved source, and 66 grid cells have no edition.
+  Work it through `discovered`/`fetched` and `pipeline review`, then run the
+  `validate_catalog` job until it exits 0. Only that stage and the stages after it need a
+  valid catalog; discovery and fetch do not (research D7).
+- [ ] **Show why a stage failed in the Dagster failure message.** Today it says only
+  `pipeline catalog exited 3`; the reason is in the step's stderr log.
+- [ ] **Confirm on a real backfill** that the one-slot writer pool prevents overlap across
+  two backfills.
 - [ ] **Deploy beyond one machine.** Cloud hosting, Kubernetes, or a remote executor
   instead of the local run launcher. The single-writer pool and the per-host rate limit must
   still hold across workers.

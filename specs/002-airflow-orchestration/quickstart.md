@@ -74,10 +74,12 @@ shows the `pipeline exams` message (for example an invalid catalog, exit 3).
 
 ## Q4. A first acquisition run (US1)
 
-In the UI, select the `exam_acquisition` group, choose **Materialize**, then **Launch
-backfill** over all partitions. Expected:
-- `catalog` runs once.
-- One partition per exam runs `discovered → fetched`.
+In the UI, open the `exam_acquisition` job (or select `discovered` and `fetched`), then
+**Launch backfill** over all partitions. Expected:
+- One partition per exam runs `discovered → fetched`, even while the catalog is still
+  incomplete.
+- `catalog` does not run. Run the `validate_catalog` job when you think the catalog is
+  complete; exit 3 lists what is still missing.
 - `discovered` shows a WARN check `pending_review` with the pending ids when candidates
   wait for a review (FR-007); the backfill still succeeds.
 - Writing steps never overlap: check the run timeline.

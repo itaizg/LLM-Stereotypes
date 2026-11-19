@@ -459,3 +459,15 @@ would bypass all three. Same interpreter, so no second environment is needed.
 orchestration tests without a scheduler or daemon in their own CI job; Quality Gates runs the
 `dagster` CI job; Dependencies names the `orchestration` extra; CLAUDE.md's Environment
 constraints line is reworded.
+
+## D7. `catalog` is not upstream of the exam assets
+
+First real run (2026-11-19): `catalog` exits 3 on a new catalog (key evidence must cite an
+approved source; editions missing), and as the upstream of `discovered` it blocked
+discovery. Reading the CLI shows only the `catalog` stage calls `validate_catalog`;
+`discover` and `fetch` use `load_catalog` and work from the ledger and blob store, so they
+need a catalog that parses, not a complete one. A complete catalog is reached *through*
+discover, review and fetch, so the dependency was a deadlock. Decision: drop it. `catalog`
+stays an asset with its own job `validate_catalog`, and `exam_acquisition` covers
+`discovered` and `fetched`. The supersession of the Airflow rule "an invalid catalog
+stops everything" applies only to the validation step itself.
