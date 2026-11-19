@@ -9,12 +9,14 @@ database connection, no write lock.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 import pytest
 
 import pipeline.__main__ as cli
-from pipeline.manifests import source_id_for
+from pipeline import acquire
+from pipeline.manifests import LedgerError, LedgerEvent, load_catalog, source_id_for
 
 if TYPE_CHECKING:
     from conftest import DatasetBuilder
@@ -142,6 +144,64 @@ class TestCandidates:
             f"candidate {shared} exam=sat domain=sat.exams.test",
             "candidates: pending=2",
         ]
+
+    def test_a_pending_candidate_whose_domain_left_the_catalog_is_not_dropped(
+        self, run: Run, dataset: DatasetBuilder
+    ) -> None:
+        orphan = _pending(dataset, "https://sat.exams.test/p/orphan")
+        kept = _pending(dataset, "https://csat.exams.test/p/1", "csat-2020-main")
+        dataset.catalog["exams"]["sat"]["domains"].remove("sat.exams.test")
+        dataset.save()
+
+        _, out, _ = run("candidates")
+        _, filtered, _ = run("candidates", "--exam", "csat")
+
+        assert out.splitlines() == [
+            f"candidate {orphan} exam=- domain=sat.exams.test",
+            f"candidate {kept} exam=csat domain=csat.exams.test",
+            "candidates: pending=2",
+        ]
+        assert orphan not in filtered
+
+    def test_a_ledger_caught_mid_append_is_read_again(
+        self, dataset: DatasetBuilder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sid = _pending(dataset, "https://sat.exams.test/p/1")
+        real = acquire.read_ledger
+        calls: list[int] = []
+
+        def torn_once(path: Path) -> list[LedgerEvent]:
+            calls.append(1)
+            if len(calls) == 1:
+                raise LedgerError("half a line")
+            return real(path)
+
+        monkeypatch.setattr(acquire, "read_ledger", torn_once)
+        pauses: list[float] = []
+
+        found = acquire.pending_candidates(
+            load_catalog(dataset.catalog_path),
+            dataset.ledger_path,
+            sleep=pauses.append,
+        )
+
+        assert found == [("sat", sid, "sat.exams.test")]
+        assert len(pauses) == 1
+
+    def test_a_ledger_that_stays_bad_still_raises(
+        self, dataset: DatasetBuilder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def always_bad(path: Path) -> list[LedgerEvent]:
+            raise LedgerError("corrupt")
+
+        monkeypatch.setattr(acquire, "read_ledger", always_bad)
+
+        with pytest.raises(LedgerError):
+            acquire.pending_candidates(
+                load_catalog(dataset.catalog_path),
+                dataset.ledger_path,
+                sleep=lambda _s: None,
+            )
 
     def test_exam_filter_keeps_only_that_exam(
         self, run: Run, dataset: DatasetBuilder

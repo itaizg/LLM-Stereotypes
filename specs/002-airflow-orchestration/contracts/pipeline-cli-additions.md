@@ -35,8 +35,12 @@ candidate <source_id> exam=<exam_id> domain=<domain>
 - **Exam attribution**: a candidate belongs to every exam whose catalog `domains` list
   its domain, and appears once per such exam. This one rule covers crawled and manual
   candidates alike. A manual candidate's `candidate` event does not record the edition
-  given with `--add-url`, and a pending candidate is always on some exam's allowlist,
-  since off-allowlist links are auto-rejected.
+  given with `--add-url`, and a pending candidate is on some exam's allowlist when it
+  is found, since off-allowlist links are auto-rejected. If its domain later leaves the
+  catalog, the unfiltered listing shows it as `exam=-` so it is not forgotten (a
+  filtered `--exam X` listing never does).
+- **Concurrent writers**: the listing takes no lock, so a read that catches a ledger
+  append half-written is retried briefly (three tries) before it fails as a ledger error.
 - **Ordering**: sorted by `(exam_id, source_id)`, so the output is deterministic.
 - **`--exam X`**: lists only that exam's candidates. An exam not in the catalog is a
   usage error (exit 2).
