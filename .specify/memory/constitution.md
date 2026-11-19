@@ -1,8 +1,29 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0
-Bump rationale: MINOR. A project constraint is removed (the ban on heavyweight
+Version change: 1.1.0 → 1.3.0 (1.2.0 was drafted for Airflow and never ratified)
+Bump rationale: MINOR. Guidance is materially expanded to cover workflow orchestration
+  (`orchestration/`, Dagster as an optional extra) and one new CI gate (the `dagster` job).
+  No principle or gate is removed or redefined.
+
+Modified in 1.3.0 (spec 002-airflow-orchestration, amendment A3, which replaces the
+Airflow draft A2 before it was ever merged):
+  - Principle I: path list now includes `orchestration/`. ty checks it with the rest of the
+    project, in the project environment with the `orchestration` extra. There is no
+    separate image and no excluded path.
+  - Principle III: orchestration tests run without a scheduler or daemon, in their own CI
+    job.
+  - Quality Gates: CI runs the `dagster` job (pytest on `tests/dagster`, ty on
+    `orchestration/`, `dagster definitions validate`, the compose file check and the image
+    build). The pre-commit ty hook includes the `orchestration` extra, so the local gate
+    equals the CI gate and needs no Docker.
+  - Project Constraints → Dependencies: Dagster is the optional `orchestration` extra of the
+    project, locked in `uv.lock`. `harness/` and `pipeline/` never import it, and the core,
+    `model` and `pipeline` installs pull none of it.
+  - Follow-up in the same change: CLAUDE.md's Environment constraints line (FR-021).
+
+Version 1.1.0 (2026-11-04):
+  Bump rationale: MINOR. A project constraint is removed (the ban on heavyweight
   frameworks, obsolete by author decision on 2026-11-04) and guidance is expanded to cover
   the dataset pipeline package. No principle or gate is removed or redefined. The bump
   level is confirmed in the amendment pull request (spec 001, FR-032).
@@ -51,9 +72,12 @@ Follow-up TODOs (repository changes, not made by this amendment):
 
 ### I. Typed Code, Checked by ty
 
-- Every function, method, and module-level variable in `harness/`, `pipeline/`, `data/`,
-  and `tests/` MUST carry type annotations, including return types (`-> None` included).
-- `ty check` MUST pass with zero errors on every commit to `main`. New `# type: ignore` or
+- Every function, method, and module-level variable in `harness/`, `pipeline/`,
+  `orchestration/`, `data/`, and `tests/` MUST carry type annotations, including return
+  types (`-> None` included).
+- `ty check` MUST pass with zero errors on every commit to `main`, including
+  `orchestration/`, which is checked in the project environment with the `orchestration`
+  extra. New `# type: ignore` or
   `# ty: ignore` comments MUST name the specific rule and give a one-line reason.
 - `Any` is permitted only at true trust boundaries (parsed YAML/JSON, third-party responses)
   and MUST be narrowed to a concrete type (dataclass, `TypedDict`, `Protocol`) before it
@@ -88,6 +112,7 @@ Rationale: one tool, one config file, zero style debate in review.
   (hand-computed values or an injected effect that the code must detect), not only for
   "runs without raising."
 - Tests MUST be deterministic: seeded randomness, no wall-clock or ordering dependence.
+- Orchestration tests run without a scheduler or daemon, in their own CI job.
 
 Rationale: the statistics are the product; an untested contrast is an unverified claim.
 
@@ -145,6 +170,10 @@ how that claim stays true as the code grows.
 - GitHub Actions: `.github/workflows/ci.yml` MUST, on every pull request and push to `main`,
   run (1) all pre-commit hooks on all files, (2) pytest on Python 3.13, and (3) an
   end-to-end harness CLI smoke test against `MockBackend` that asserts required artifacts exist and an injected effect is detected.
+- CI MUST run the `dagster` job: pytest on `tests/dagster`, ty on `orchestration/`,
+  `dagster definitions validate`, the compose file check and the image build. The
+  pre-commit ty hook installs the `orchestration` extra, so the local gate equals the CI
+  gate and needs no Docker.
 - CI jobs MUST use least-privilege permissions (`contents: read` unless a job needs more),
   pinned action versions, and no secrets.
 - A pull request MUST NOT merge with a failing or skipped required check. Local gate and CI
@@ -162,7 +191,9 @@ how that claim stays true as the code grows.
 - Dependencies: Python 3.13, managed with `uv`, pinned in `uv.lock`; CI installs with
   `uv sync --locked`. Model-inference packages stay in the optional `model` extra, and
   dataset-pipeline packages stay in the optional `pipeline` extra; the core install stays
-  GPU-free.
+  GPU-free. Workflow orchestration (Dagster) is the optional `orchestration` extra, used
+  only by `orchestration/`, which runs the pipeline as a subprocess. `harness/` and
+  `pipeline/` never import it, and no other install pulls it.
 - Device handling: detect MPS → CUDA → CPU at runtime; never hardcode a device. Record
   device and backend in every run manifest.
 - Secrets: environment variables only; never committed, never printed or logged.
@@ -185,4 +216,4 @@ how that claim stays true as the code grows.
 - Spec Kit plans (`/speckit-plan`) MUST include a Constitution Check that evaluates the
   design against these principles before implementation begins.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-04
+**Version**: 1.3.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-18

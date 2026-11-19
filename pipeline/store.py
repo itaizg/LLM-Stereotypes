@@ -63,9 +63,15 @@ def connect(dsn: str, *, autocommit: bool = True) -> psycopg.Connection:
 
 
 def apply_schema(conn: psycopg.Connection) -> bool:
-    """Apply ``schema.sql`` if the tables are missing; return True if applied."""
-    present = conn.execute("SELECT to_regclass('exam_editions')").fetchone()
-    if present is not None and present[0] is not None:
+    """Apply ``schema.sql`` if a table is missing; return True if applied.
+
+    Checking ``host_requests`` as well as ``exam_editions`` brings a database made
+    before that table existed up to date. Applying is safe: the file is idempotent.
+    """
+    row = conn.execute(
+        "SELECT to_regclass('exam_editions'), to_regclass('host_requests')"
+    ).fetchone()
+    if row is not None and row[0] is not None and row[1] is not None:
         return False
     # The DDL is our own committed schema.sql, never user input; psycopg's typing
     # asks for a literal string to keep injectable text out of execute().
@@ -327,3 +333,48 @@ def insert_if_new(
             )
             added += cursor.rowcount
     return added
+
+
+# --- request spacing across commands (spec 002, P3) -----------------------------
+
+
+def load_host_requests(conn: psycopg.Connection) -> dict[str, float]:
+    """Each host's last request time, as epoch seconds."""
+    rows = conn.execute(
+        "SELECT host, extract(epoch FROM last_request_at)::float8 FROM host_requests"
+    ).fetchall()
+    return {str(host): float(at) for host, at in rows}
+
+
+def record_host_request(conn: psycopg.Connection, host: str, at_epoch: float) -> None:
+    """Upsert one host's last request time (parameterized, FR-031).
+
+    The stored time never moves backwards: a wall clock that was set back between
+    two commands must not shorten the wait the later time already earned.
+    """
+    conn.execute(
+        "INSERT INTO host_requests (host, last_request_at) "
+        "VALUES (%s, to_timestamp(%s)) "
+        "ON CONFLICT (host) DO UPDATE SET last_request_at = "
+        "GREATEST(host_requests.last_request_at, EXCLUDED.last_request_at)",
+        (host, at_epoch),
+    )
+
+
+class PostgresHostLedger:
+    """``web.HostLedger`` over Postgres: read once at start, written after each request.
+
+    It runs only inside commands that hold the write lock, so no other process
+    changes the table while it is held and the one read stays accurate.
+    """
+
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+        self._last = load_host_requests(conn)
+
+    def last(self, host: str) -> float | None:
+        return self._last.get(host)
+
+    def record(self, host: str, at: float) -> None:
+        self._last[host] = max(self._last.get(host, at), at)
+        record_host_request(self._conn, host, at)

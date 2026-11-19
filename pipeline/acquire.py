@@ -12,6 +12,7 @@ recorded in the ledger, not raised.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -29,6 +30,7 @@ from pipeline.manifests import (
     EvidenceItem,
     FetchRecord,
     LedgerError,
+    LedgerEvent,
     append_event,
     artifact_rows,
     load_catalog,
@@ -39,7 +41,7 @@ from pipeline.manifests import (
     validate_catalog,
 )
 from pipeline.store import Counts, StageSummary, apply_schema, reconcile
-from pipeline.web import Clock, Fetched, Fetcher, extract_links
+from pipeline.web import Clock, Fetched, Fetcher, HostLedger, extract_links
 
 __all__ = [
     "CatalogError",
@@ -359,6 +361,7 @@ async def discover(
     *,
     at: str,
     exam: str | None = None,
+    hosts: HostLedger | None = None,
 ) -> DiscoverSummary:
     """Crawl each exam's official index pages and record every link as a candidate.
 
@@ -369,7 +372,7 @@ async def discover(
     state = replay_ledger(read_ledger(ledger_path))
     known = set(state.sources)
     latest = {sid: s.fetches[-1] for sid, s in state.sources.items() if s.fetches}
-    fetcher = Fetcher(client, clock, interval_for(catalog))
+    fetcher = Fetcher(client, clock, interval_for(catalog), hosts)
     seeds_fetched = added = rejected = refused = 0
     for exam_id in sorted(catalog.exams):
         if exam is not None and exam_id != exam:
@@ -411,6 +414,73 @@ async def discover(
                 added += 1
                 rejected += fields["auto_decision"] is not None
     return DiscoverSummary(seeds_fetched, added, rejected, refused)
+
+
+# A candidate on no current exam's allowlist (its domain left the catalog while it was
+# still pending) is listed under this exam id instead of silently disappearing.
+UNATTRIBUTED = "-"
+
+_READ_ATTEMPTS = 3
+_READ_PAUSE_SECONDS = 0.3
+
+
+def _read_ledger_settled(
+    ledger_path: Path, sleep: Callable[[float], None] = time.sleep
+) -> list[LedgerEvent]:
+    """Read the ledger, retrying briefly if a concurrent writer is mid-append.
+
+    A listing takes no lock (it only reads), so it can land between the first and
+    last bytes of an event another command is appending. A line that stays bad after
+    a short wait is a real ledger error and is raised as before.
+    """
+    for attempt in range(_READ_ATTEMPTS):
+        try:
+            return read_ledger(ledger_path)
+        except LedgerError:
+            if attempt == _READ_ATTEMPTS - 1:
+                raise
+            sleep(_READ_PAUSE_SECONDS)
+    raise AssertionError("unreachable")
+
+
+def pending_candidates(
+    catalog: Catalog,
+    ledger_path: Path,
+    exam: str | None = None,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[tuple[str, str, str]]:
+    """Candidates nobody has reviewed yet, as ``(exam_id, source_id, domain)``.
+
+    A candidate belongs to every exam whose catalog ``domains`` list its domain,
+    and appears once per such exam. That one rule covers crawled and manual
+    candidates alike: a manual candidate's event does not record the edition it
+    was added for, and a pending candidate is on some allowlist when it is found
+    (an off-allowlist link is rejected then). If its domain later leaves the
+    catalog it is no exam's, and the unfiltered listing shows it under
+    ``UNATTRIBUTED`` so it is not forgotten. Sorted, so the output is
+    deterministic. It only reads the ledger.
+    """
+    if exam is not None and exam not in catalog.exams:
+        raise ValueError(f"unknown exam: {exam}")
+    sources = replay_ledger(_read_ledger_settled(ledger_path, sleep)).sources.values()
+    found: list[tuple[str, str, str]] = []
+    for source in sources:
+        if source.decision != "pending":
+            continue
+        owners = [
+            exam_id
+            for exam_id, entry in catalog.exams.items()
+            if source.domain in entry.domains
+        ]
+        if not owners and exam is None:
+            owners = [UNATTRIBUTED]
+        found.extend(
+            (exam_id, source.source_id, source.domain)
+            for exam_id in owners
+            if exam in (None, exam_id)
+        )
+    return sorted(found)
 
 
 def add_manual_url(
@@ -456,6 +526,7 @@ async def fetch(
     exam: str | None = None,
     refresh: bool = False,
     source_ids: Sequence[str] = (),
+    hosts: HostLedger | None = None,
 ) -> FetchSummary:
     """Fetch approved sources, storing each file once under its content hash.
 
@@ -468,7 +539,7 @@ async def fetch(
     state = replay_ledger(read_ledger(ledger_path))
     edition_exam = {e.edition_id: e.exam_id for e in catalog.editions}
     latest = {sid: s.fetches[-1] for sid, s in state.sources.items() if s.fetches}
-    fetcher = Fetcher(client, clock, interval_for(catalog))
+    fetcher = Fetcher(client, clock, interval_for(catalog), hosts)
     unknown = [sid for sid in source_ids if sid not in state.sources]
     if unknown:
         raise ValueError(f"unknown candidate: {unknown[0]}")

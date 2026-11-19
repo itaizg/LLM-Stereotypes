@@ -233,6 +233,16 @@ CREATE TABLE IF NOT EXISTS snapshots (
 );
 
 -- ---------------------------------------------------------------------------
+-- host_requests: when each host was last asked for anything (spec 002, P3).
+-- Operational state, not dataset content: `pipeline rebuild` does not rebuild it
+-- and no snapshot carries it. Losing it costs at most one interval wait per host.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS host_requests (
+    host            text PRIMARY KEY,
+    last_request_at timestamptz NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
 -- questions_flat: one row per live question with its current key and preferred
 -- English (FR-017). Every export reads this view, never the tables.
 -- ---------------------------------------------------------------------------
@@ -419,6 +429,10 @@ COMMENT ON COLUMN exam_editions.lineage IS 'Format era, e.g. sat-paper-2016, sat
 COMMENT ON COLUMN exam_editions.language IS 'Original language of the paper, BCP 47.';
 COMMENT ON COLUMN exam_editions.english_item_map IS 'Optional map from this edition''s (section:item) to the official English version''s numbering, when they differ.';
 COMMENT ON COLUMN exam_editions.evidence IS 'Non-empty list of {type, source_id or artifact_sha256, note}: release_page, statement, or index_absence.';
+
+COMMENT ON TABLE host_requests IS 'Operational state, not dataset content: when each host was last requested, so the per-host interval holds across commands (FR-012). Not rebuilt by `pipeline rebuild`, not in snapshots.';
+COMMENT ON COLUMN host_requests.host IS 'Lower-cased hostname, e.g. www.kice.re.kr.';
+COMMENT ON COLUMN host_requests.last_request_at IS 'Wall-clock time of the last request sent to the host, robots.txt and retries included.';
 
 COMMENT ON TABLE sources IS 'Candidate URLs found by index crawl or added by hand, with the maintainer''s review decision (FR-007).';
 COMMENT ON COLUMN sources.source_id IS 'src_ plus the first 16 hex digits of the SHA-256 of the URL.';

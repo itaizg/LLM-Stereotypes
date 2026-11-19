@@ -181,3 +181,12 @@ ci_suites/
 # exported question banks hold corpus text. Neither is ever committed.
 .pipeline-data/
 exports/
+
+# Dagster instance files for `dagster dev` (spec 002): run history, logs and schedules
+# state live here, never in git. Only the instance config is tracked.
+orchestration/dagster_home/*
+!orchestration/dagster_home/dagster.yaml
+.tmp_dagster_home_*/
+
+# Compose secrets (orchestration/.env.example is the tracked template)
+orchestration/.env

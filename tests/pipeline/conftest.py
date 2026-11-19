@@ -12,6 +12,7 @@ import hashlib
 import os
 import uuid
 from collections.abc import Callable, Collection, Generator, Sequence
+from contextlib import ExitStack, contextmanager
 from datetime import date
 from pathlib import Path
 from typing import Any, LiteralString, cast
@@ -46,8 +47,8 @@ def test_dsn() -> str:
     pytest.skip("PIPELINE_TEST_DSN is not set; skipping database tests")
 
 
-@pytest.fixture
-def schema_dsn(test_dsn: str) -> Generator[str]:
+@contextmanager
+def fresh_schema(test_dsn: str) -> Generator[str]:
     """A DSN whose connections all see one fresh schema, dropped afterwards."""
     schema = f"t_{uuid.uuid4().hex}"
     with psycopg.connect(test_dsn, autocommit=True) as admin:
@@ -62,6 +63,20 @@ def schema_dsn(test_dsn: str) -> Generator[str]:
             admin.execute(
                 sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
             )
+
+
+@pytest.fixture
+def schema_dsn(test_dsn: str) -> Generator[str]:
+    """One fresh schema for the test; use ``fresh_schema`` directly for more."""
+    with fresh_schema(test_dsn) as dsn:
+        yield dsn
+
+
+@pytest.fixture
+def new_schema(test_dsn: str) -> Generator[Callable[[], str]]:
+    """Call it for another fresh schema; all are dropped when the test ends."""
+    with ExitStack() as stack:
+        yield lambda: stack.enter_context(fresh_schema(test_dsn))
 
 
 @pytest.fixture

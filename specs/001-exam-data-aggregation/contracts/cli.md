@@ -25,10 +25,12 @@ edition. Without them, the stage runs on everything in sorted `edition_id` order
 
 | Command | Reads | Writes | Notes |
 |---------|-------|--------|-------|
-| `catalog` | catalog.yaml, ledger | `exams`, `exam_editions`, `sources`, `artifacts`, `exam_checks` | Validates first (66 cells, evidence, keys published) and writes nothing if validation fails. Also applies `schema.sql` if the tables are missing. |
-| `discover` | catalog seeds | ledger (`candidate` events), blobs (seed pages) | `--add-url URL --edition E` records a `manual` candidate. Off-allowlist links are recorded as `rejected`. |
+| `catalog` | catalog.yaml, ledger | `exams`, `exam_editions`, `sources`, `artifacts`, `exam_checks` | Validates first (66 cells, evidence, keys published) and writes nothing if validation fails. Also applies `schema.sql` if a table is missing (`discover` and `fetch` do the same before they read `host_requests`). |
+| `exams` | catalog.yaml | stdout only; no lock, no database | One exam id per line, sorted, then `exams: count=N`. `--exam` and `--edition` are a usage error (exit 2); an unloadable catalog exits 3. Added for orchestration ([spec 002](../../002-airflow-orchestration/contracts/pipeline-cli-additions.md) P1); its `--snapshot V` form arrives with `export`. |
+| `candidates [--exam X]` | ledger, catalog.yaml | stdout only; no lock, no database | One line `candidate <source_id> exam=<exam_id> domain=<domain>` per pending candidate (no `review` event yet), sorted by `(exam_id, source_id)`, then `candidates: pending=N`. A candidate appears under every exam whose `domains` list its domain; one whose domain no exam lists any more (removed while it was pending) appears under `exam=-` in the unfiltered listing only. A read that catches a concurrent append is retried briefly before it fails. No URL path or page text is printed. An exam not in the catalog is a usage error (exit 2). Added for orchestration (spec 002 P2). |
+| `discover` | catalog seeds | ledger (`candidate` events), blobs (seed pages) | `--add-url URL --edition E` records a `manual` candidate. Off-allowlist links are recorded as `rejected`. Spaces its requests with `fetch` through `host_requests`. |
 | `review CANDIDATE_ID --approve --edition E --role ROLE [--published DATE]` / `--reject --reason TEXT` | ledger | ledger (`review` event) | The only way to approve. Shows the URL, domain, and found-on page before writing. A review identical to the source's latest one (same decision, edition, role, date, reason) appends nothing (FR-019). An official English version uses `--role english` on the original edition. |
-| `fetch [SOURCE_ID…] [--refresh]` | ledger (approved candidates) | blobs (`raw/<sha256>`), ledger (`fetch` events) | Skips sources already fetched unless `--refresh` asks for them again, which is how changed content at a URL is noticed. Naming an unapproved `SOURCE_ID` records `not_approved` and makes no request. Enforces the allowlist, robots.txt, and the rate limit. The write lock means only one `fetch` runs, so the per-domain interval holds across invocations. Refusals are recorded, not raised. |
+| `fetch [SOURCE_ID…] [--refresh]` | ledger (approved candidates) | blobs (`raw/<sha256>`), ledger (`fetch` events) | Skips sources already fetched unless `--refresh` asks for them again, which is how changed content at a URL is noticed. Naming an unapproved `SOURCE_ID` records `not_approved` and makes no request. Enforces the allowlist, robots.txt, and the rate limit. The write lock means only one request-sending command runs at a time, and the `host_requests` table (data-model.md) carries each host's last request time between commands, so the per-domain interval holds across invocations: the first request of a new `fetch` or `discover` waits out whatever is left of the interval since the previous command's last request. Refusals are recorded, not raised. |
 | `extract` | `paper` artifacts, blobs | `questions`, `stimuli`, `extraction_failures` (stage `extract`) | Only for `ingested` editions (FR-004), and only `paper` artifacts: `english` artifacts are read by `translate`, never stored as questions. An edition that yields no questions gets an edition-level failure. `--workers N` (default: CPU count). |
 | `key` | key artifacts, `questions` | `answer_keys`, `extraction_failures` (stage `key`) | Re-checks every current key against the question's current choices. Equal-rank keys that disagree become `key_conflict`. |
 | `translate` | `questions`, `stimuli`, `english` artifacts, MT cache | `translations`, `extraction_failures` (stage `translate`), blobs (MT responses) | Parses `english` artifacts in memory and pairs them with the original edition (research R10). `--offline` makes an uncached request a hard error (exit 1) naming the subject ID, with no API call. |
@@ -41,6 +43,13 @@ edition. Without them, the stage runs on everything in sorted `edition_id` order
 
 `python -m pipeline.corpus` (the guard) is separate on purpose: it needs only the standard
 library and PyYAML, so pre-commit and CI can run it without the `pipeline` extra.
+
+`python -m pipeline.corpus [PATH…]` takes optional paths. With none, it behaves as above:
+it checks tracked files and the samples allowlist. With paths, it also scans every regular
+file under them, tracked or not, for corpus text only (the allowlist and binary-suffix
+rules apply to tracked files only), and exits 3 on any hit. A path that does not exist
+exits 2, so a typo cannot pass by scanning nothing. It is how [spec 002](../../002-airflow-orchestration/contracts/pipeline-cli-additions.md)
+(P4) checks Dagster's run storage.
 
 ## Exit codes
 
@@ -57,4 +66,5 @@ library and PyYAML, so pre-commit and CI can run it without the `pipeline` extra
 Each stage ends with one summary line, for example
 `extract: editions=12 inserted=840 updated=0 deleted=0 failures=+3/-0`. A re-run on
 unchanged inputs prints all zeros, which the idempotence tests check. No question text is
-written to stdout or logs.
+written to stdout or logs. The read-only listings print their lines first and end with
+`exams: count=N` or `candidates: pending=N`.
