@@ -12,6 +12,7 @@ recorded in the ledger, not raised.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -29,6 +30,7 @@ from pipeline.manifests import (
     EvidenceItem,
     FetchRecord,
     LedgerError,
+    LedgerEvent,
     append_event,
     artifact_rows,
     load_catalog,
@@ -414,28 +416,71 @@ async def discover(
     return DiscoverSummary(seeds_fetched, added, rejected, refused)
 
 
+# A candidate on no current exam's allowlist (its domain left the catalog while it was
+# still pending) is listed under this exam id instead of silently disappearing.
+UNATTRIBUTED = "-"
+
+_READ_ATTEMPTS = 3
+_READ_PAUSE_SECONDS = 0.3
+
+
+def _read_ledger_settled(
+    ledger_path: Path, sleep: Callable[[float], None] = time.sleep
+) -> list[LedgerEvent]:
+    """Read the ledger, retrying briefly if a concurrent writer is mid-append.
+
+    A listing takes no lock (it only reads), so it can land between the first and
+    last bytes of an event another command is appending. A line that stays bad after
+    a short wait is a real ledger error and is raised as before.
+    """
+    for attempt in range(_READ_ATTEMPTS):
+        try:
+            return read_ledger(ledger_path)
+        except LedgerError:
+            if attempt == _READ_ATTEMPTS - 1:
+                raise
+            sleep(_READ_PAUSE_SECONDS)
+    raise AssertionError("unreachable")
+
+
 def pending_candidates(
-    catalog: Catalog, ledger_path: Path, exam: str | None = None
+    catalog: Catalog,
+    ledger_path: Path,
+    exam: str | None = None,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> list[tuple[str, str, str]]:
     """Candidates nobody has reviewed yet, as ``(exam_id, source_id, domain)``.
 
     A candidate belongs to every exam whose catalog ``domains`` list its domain,
     and appears once per such exam. That one rule covers crawled and manual
     candidates alike: a manual candidate's event does not record the edition it
-    was added for, and a pending candidate is always on some allowlist, since an
-    off-allowlist link is rejected when it is found. Sorted, so the output is
+    was added for, and a pending candidate is on some allowlist when it is found
+    (an off-allowlist link is rejected then). If its domain later leaves the
+    catalog it is no exam's, and the unfiltered listing shows it under
+    ``UNATTRIBUTED`` so it is not forgotten. Sorted, so the output is
     deterministic. It only reads the ledger.
     """
     if exam is not None and exam not in catalog.exams:
         raise ValueError(f"unknown exam: {exam}")
-    sources = replay_ledger(read_ledger(ledger_path)).sources.values()
-    return sorted(
-        (exam_id, source.source_id, source.domain)
-        for source in sources
-        if source.decision == "pending"
-        for exam_id, entry in catalog.exams.items()
-        if source.domain in entry.domains and exam in (None, exam_id)
-    )
+    sources = replay_ledger(_read_ledger_settled(ledger_path, sleep)).sources.values()
+    found: list[tuple[str, str, str]] = []
+    for source in sources:
+        if source.decision != "pending":
+            continue
+        owners = [
+            exam_id
+            for exam_id, entry in catalog.exams.items()
+            if source.domain in entry.domains
+        ]
+        if not owners and exam is None:
+            owners = [UNATTRIBUTED]
+        found.extend(
+            (exam_id, source.source_id, source.domain)
+            for exam_id in owners
+            if exam in (None, exam_id)
+        )
+    return sorted(found)
 
 
 def add_manual_url(
