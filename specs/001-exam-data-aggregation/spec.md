@@ -567,3 +567,11 @@ Decisions taken to resolve the cross-artifact analysis of spec, plan, and tasks:
   file becomes an artifact, evidence, or extraction input only after an approval links it
   to an edition (FR-007 as amended, FR-009). ENEM is the first user: its year pages list
   hundreds of PDFs.
+- Q: Is the Psychometric Entrance Test ingested? → A: Not as things stand. NITE's
+  practice-test page publishes no answer keys (FR-006), and its terms forbid copying or use
+  "including for research" without NITE's written consent. Nothing is fetched from NITE;
+  its 11 cells stay open until NITE consents and an official key source exists, or the
+  scope changes (TODO.md).
+- Q: How is an exam whose official site disallows crawling handled? → A: Its editions are
+  `blocked` with `status_reason: robots` (FR-008), citing the official site the ledger
+  records as `refused_robots`. CSAT is the case: both KICE hosts disallow all paths.
