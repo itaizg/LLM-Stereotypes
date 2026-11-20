@@ -1280,6 +1280,7 @@ orchestration = [
 pipeline = [
     { name = "beautifulsoup4" },
     { name = "boto3" },
+    { name = "certifi" },
     { name = "httpx" },
     { name = "openai" },
     { name = "pdfplumber" },
@@ -1293,6 +1294,7 @@ requires-dist = [
     { name = "accelerate", marker = "extra == 'model'" },
     { name = "beautifulsoup4", marker = "extra == 'pipeline'", specifier = ">=4.12" },
     { name = "boto3", marker = "extra == 'pipeline'", specifier = ">=1.35" },
+    { name = "certifi", marker = "extra == 'pipeline'", specifier = ">=2024.2.2" },
     { name = "dagster", marker = "extra == 'orchestration'", specifier = "==1.13.30" },
     { name = "dagster-postgres", marker = "extra == 'orchestration'", specifier = "==0.29.30" },
     { name = "dagster-webserver", marker = "extra == 'orchestration'", specifier = "==1.13.30" },

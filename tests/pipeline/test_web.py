@@ -8,6 +8,7 @@ tests in ``test_fetch.py`` cover how these results reach the ledger.
 from __future__ import annotations
 
 import asyncio
+import ssl
 from collections.abc import Sequence
 from itertools import pairwise
 from typing import TYPE_CHECKING
@@ -16,7 +17,7 @@ import httpx
 import pytest
 
 from pipeline.store import PostgresHostLedger, load_host_requests
-from pipeline.web import Fetched, Fetcher, extract_links, new_client
+from pipeline.web import Fetched, Fetcher, extract_links, new_client, tls_context
 
 if TYPE_CHECKING:
     import psycopg
@@ -348,3 +349,23 @@ class TestLinkExtraction:
             "https://kice.exams.test/b.pdf",
             "https://kice.exams.test/archive/c.pdf",
         ]
+
+
+class TestTlsContext:
+    """Missing intermediates are supplied, without becoming trust anchors."""
+
+    def test_the_committed_intermediates_are_loaded(self) -> None:
+        names = {
+            value
+            for cert in tls_context().get_ca_certs()
+            for rdn in cert["subject"]
+            for key, value in rdn
+            if key == "commonName"
+        }
+        assert "RNP ICPEdu GR46 OV TLS CA 2025" in names
+
+    def test_a_chain_must_still_end_at_a_root(self) -> None:
+        context = tls_context()
+        assert not context.verify_flags & ssl.VERIFY_X509_PARTIAL_CHAIN
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        assert context.check_hostname
