@@ -26,6 +26,8 @@ exams:
       - url: https://www.gov.br/inep/…/provas-e-gabaritos
         complete_listing: true       # the body's complete official archive; only then
                                      #   can absence be `index_absence` evidence
+    auto_fetch:                      # optional; pending candidates matching one are
+      - 'https?://download\.inep\.gov\.br/.+' #   fetched without review (FR-007 amended)
     parse:                           # generic parser config (R8)
       item_marker: '^QUESTÃO\s+(\d+)'
       choice_markers: [A, B, C, D, E]

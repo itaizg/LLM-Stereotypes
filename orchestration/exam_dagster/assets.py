@@ -141,7 +141,7 @@ def build_assets(
         deps=[discovered],
         pool=stage.PIPELINE_WRITER,
         retry_policy=retry_policy,
-        description="Fetch the approved sources for one exam.",
+        description="Fetch the approved and auto-fetch sources for one exam.",
     )
     def fetched(context: dg.AssetExecutionContext) -> dg.MaterializeResult:
         exam = context.partition_key

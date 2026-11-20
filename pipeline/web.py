@@ -13,15 +13,18 @@ says it is busy, and never follow a redirect off the allowlist.
 from __future__ import annotations
 
 import asyncio
+import ssl
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Protocol
 from urllib.parse import urldefrag, urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
 
+import certifi
 import httpx
 from bs4 import BeautifulSoup, Tag, UnicodeDammit
 from bs4.dammit import EncodingDetector
@@ -37,6 +40,7 @@ __all__ = [
     "extract_links",
     "new_client",
     "retry_after_seconds",
+    "tls_context",
 ]
 
 # No personal contact details: the repository URL identifies the project.
@@ -100,9 +104,30 @@ class Fetched:
     last_modified: str | None = None
 
 
+INTERMEDIATES = Path(__file__).with_name("intermediates.pem")
+
+
+def tls_context() -> ssl.SSLContext:
+    """certifi's roots, plus intermediates that some official hosts fail to send.
+
+    A host that omits its intermediate certificate fails verification in OpenSSL,
+    and robots.txt then counts as unreachable, which refuses the whole host. The
+    extra intermediates help build a chain but can never end one: Python 3.13
+    trusts a chain that stops at any certificate in the store
+    (``VERIFY_X509_PARTIAL_CHAIN``), so that flag is cleared and every chain must
+    still reach a root in certifi.
+    """
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.load_verify_locations(cafile=str(INTERMEDIATES))
+    context.verify_flags &= ~ssl.VERIFY_X509_PARTIAL_CHAIN
+    return context
+
+
 def new_client() -> httpx.AsyncClient:
     """The CLI's HTTP client: redirects are followed by ``Fetcher``, not httpx."""
-    return httpx.AsyncClient(follow_redirects=False, timeout=REQUEST_TIMEOUT)
+    return httpx.AsyncClient(
+        follow_redirects=False, timeout=REQUEST_TIMEOUT, verify=tls_context()
+    )
 
 
 def retry_after_seconds(response: httpx.Response) -> float | None:
