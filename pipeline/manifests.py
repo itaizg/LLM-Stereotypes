@@ -123,6 +123,14 @@ class Exam:
     parse: ParseConfig
     parse_english: ParseConfig | None
     card_notes: str
+    # URL patterns whose candidates are fetched without a per-URL review (FR-007 as
+    # amended): committing the pattern is the maintainer's decision. Using the file
+    # (artifact, evidence, extraction) still needs an approval linking an edition.
+    auto_fetch: tuple[re.Pattern[str], ...] = ()
+
+    def auto_fetches(self, url: str, domain: str) -> bool:
+        """True when an allowlisted ``url`` matches one of the committed patterns."""
+        return domain in self.domains and any(p.fullmatch(url) for p in self.auto_fetch)
 
 
 @dataclass(frozen=True)
@@ -197,6 +205,18 @@ def _seed(raw_seed: object, where: str) -> Seed:
     )
 
 
+def _patterns(value: object, where: str) -> tuple[re.Pattern[str], ...]:
+    if value is None:
+        return ()
+    patterns: list[re.Pattern[str]] = []
+    for text in _str_list(value, where):
+        try:
+            patterns.append(re.compile(text))
+        except re.error as exc:
+            raise CatalogError(f"{where}: bad pattern {text!r}: {exc}") from None
+    return tuple(patterns)
+
+
 def _exam(exam_id: str, raw_exam: object) -> Exam:
     where = f"exams.{exam_id}"
     raw = _mapping(raw_exam, where)
@@ -235,6 +255,7 @@ def _exam(exam_id: str, raw_exam: object) -> Exam:
             else None
         ),
         card_notes=str(raw.get("card_notes") or ""),
+        auto_fetch=_patterns(raw.get("auto_fetch"), f"{where}.auto_fetch"),
     )
 
 
