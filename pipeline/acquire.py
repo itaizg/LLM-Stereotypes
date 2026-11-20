@@ -5,7 +5,8 @@ them into database rows and ledger events. Every stage is callable on its own
 (FR-018) and idempotent (FR-019).
 
 Network rules (FR-007, FR-008, research R1 and R6): a URL is fetched only after
-the maintainer approves it, and only through ``web.Fetcher``, which applies the
+the maintainer approves it, or when it matches an ``auto_fetch`` pattern the
+maintainer committed for its exam, and only through ``web.Fetcher``, which applies the
 allowlist, robots.txt, the per-domain rate limit, and backoff. A refusal is
 recorded in the ledger, not raised.
 """
@@ -13,7 +14,7 @@ recorded in the ledger, not raised.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -31,6 +32,7 @@ from pipeline.manifests import (
     FetchRecord,
     LedgerError,
     LedgerEvent,
+    SourceState,
     append_event,
     artifact_rows,
     load_catalog,
@@ -515,6 +517,33 @@ class FetchSummary:
     skipped: int = 0
 
 
+def _fetch_exam(
+    catalog: Catalog,
+    source: SourceState,
+    edition_exam: Mapping[str, str],
+    exam: str | None,
+) -> str | None:
+    """The exam a source is fetched for, or None if no rule allows fetching it.
+
+    An approved source belongs to its edition's exam. A pending one is fetched only
+    when an exam's committed ``auto_fetch`` patterns cover it (FR-007 as amended);
+    a rejected one never is.
+    """
+    if source.decision == "approved":
+        owner = edition_exam.get(source.edition_id or "")
+        return owner if owner is not None and exam in (None, owner) else None
+    if source.decision != "pending":
+        return None
+    return next(
+        (
+            exam_id
+            for exam_id, entry in sorted(catalog.exams.items())
+            if exam in (None, exam_id) and entry.auto_fetches(source.url, source.domain)
+        ),
+        None,
+    )
+
+
 async def fetch(
     catalog: Catalog,
     ledger_path: Path,
@@ -528,12 +557,17 @@ async def fetch(
     source_ids: Sequence[str] = (),
     hosts: HostLedger | None = None,
 ) -> FetchSummary:
-    """Fetch approved sources, storing each file once under its content hash.
+    """Fetch approved and auto-fetch sources, storing each file once by content hash.
+
+    A source is fetched when the maintainer approved it, or when it is still pending
+    and its URL matches an ``auto_fetch`` pattern committed for its exam. A fetched
+    but unapproved file is stored and logged only: it becomes an artifact once an
+    approval links it to an edition (``artifact_rows``).
 
     By default a source that was already fetched is skipped; ``refresh`` requests
     it again, which is how changed content at the same URL is noticed. A changed
     file becomes a second blob and a second event: the first is never touched
-    (FR-009). Naming an unapproved source records ``not_approved`` and makes no
+    (FR-009). Naming a source no rule allows records ``not_approved`` and makes no
     request.
     """
     state = replay_ledger(read_ledger(ledger_path))
@@ -543,18 +577,24 @@ async def fetch(
     unknown = [sid for sid in source_ids if sid not in state.sources]
     if unknown:
         raise ValueError(f"unknown candidate: {unknown[0]}")
-    targets = sorted(source_ids) or sorted(
-        sid for sid, s in state.sources.items() if s.decision == "approved"
-    )
+    owners = {
+        sid: _fetch_exam(catalog, source, edition_exam, exam)
+        for sid, source in state.sources.items()
+    }
+    targets = sorted(source_ids) or sorted(sid for sid, o in owners.items() if o)
     fetched = unchanged = refused = errors = skipped = 0
     for sid in targets:
         source = state.sources[sid]
-        if source.decision != "approved":
-            _record_fetch(ledger_path, latest, sid, Fetched("not_approved"), None, at)
-            refused += 1
-            continue
-        exam_id = edition_exam.get(source.edition_id or "")
-        if exam_id is None or (exam is not None and exam_id != exam):
+        exam_id = owners[sid]
+        if exam_id is None:
+            # Outside the --exam filter is skipped; no rule at all is a refusal.
+            allowed = source.decision == "approved" or _fetch_exam(
+                catalog, source, edition_exam, None
+            )
+            if not allowed:
+                refusal = Fetched("not_approved")
+                _record_fetch(ledger_path, latest, sid, refusal, None, at)
+                refused += 1
             continue
         if not refresh and sid in latest and latest[sid].outcome == "fetched":
             skipped += 1

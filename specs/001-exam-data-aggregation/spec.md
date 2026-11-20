@@ -244,7 +244,10 @@ store, and compare per-question content hashes and snapshot row counts with the 
 **Source acquisition**
 
 - **FR-007**: Web search MUST be used only to discover candidate URLs. Every candidate MUST
-  be recorded and approved by the maintainer before it is fetched or used as evidence.
+  be recorded, and approved by the maintainer before it is used as an artifact or as
+  evidence. It MUST also be approved before it is fetched, unless its URL matches an
+  `auto_fetch` pattern the maintainer committed for its exam in the catalog. Such a file is
+  stored and logged, but it is linked to an edition (FR-009) only by an approval.
 - **FR-008**: Files MUST be fetched only from allowlisted official domains, respecting
   robots.txt and a per-domain rate limit. Fetch attempts that violate these rules MUST be
   refused and recorded.
@@ -553,3 +556,14 @@ Decisions taken to resolve the cross-artifact analysis of spec, plan, and tasks:
   yields no questions gets a failure record, so it can never pass silently.
 - Q: What if an exam has fewer than 50 questions (or a language fewer than 30)? → A: It is
   checked in full (FR-024, SC-003).
+
+### Session 2026-11-19 (acquisition at scale)
+
+- Q: Must every file be approved one URL at a time before it is fetched? → A: No. An exam
+  may list `auto_fetch` URL patterns in `catalog.yaml`, for example its official file host.
+  Pending candidates that match a pattern and are on the allowlist are fetched without a
+  review of each URL. Committing the pattern is the maintainer's decision, and it is
+  reviewed in git. robots.txt, the rate limit and the allowlist still apply (FR-008). Such a
+  file becomes an artifact, evidence, or extraction input only after an approval links it
+  to an edition (FR-007 as amended, FR-009). ENEM is the first user: its year pages list
+  hundreds of PDFs.

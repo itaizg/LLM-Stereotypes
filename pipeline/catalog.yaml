@@ -23,6 +23,12 @@
 # then set `keys_evidence: {source_id: SOURCE_ID, note: "..."}` on the exam. An exam whose
 # body does not publish keys is out of scope: removing it is a spec change, and
 # `publishes_keys: false` makes `pipeline catalog` refuse.
+#
+# auto_fetch (FR-007 as amended): an optional list of URL regexes per exam. `fetch` also
+# takes pending candidates whose URL fully matches one, if their domain is allowlisted, so
+# an official file host's hundreds of PDFs need no review one by one. Such a file is
+# stored and logged; it becomes an artifact only when `pipeline review --approve` links it
+# to an edition.
 version: 1
 
 translation:
