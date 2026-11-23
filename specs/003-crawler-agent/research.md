@@ -326,6 +326,11 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
     approve/reject controls (exam, edition, role and reason fields).
   - **Saving:** "Save decisions" creates a Blob and downloads `decisions-<run_id>.json`.
     The maintainer runs `pipeline import-decisions` on it.
+  - **Logic stays in Python:** the page embeds one decision skeleton per group,
+    computed by `review.decision_skeletons()` (`decision_id`, `content_hash`, members
+    with revisions and proposed origins). The script only copies a skeleton and adds
+    the maintainer's choices, mirroring `review.merge_choices()`, so the file's
+    structure is tested in pytest without a browser and the page does no hashing.
 - **Rationale:** a local file needs no server or auth (single maintainer). The team
   checklist's XSS rule is met by escaping, and CSP is defence in depth.
 - **Alternatives:** a local web server writing the file directly (more code, an open

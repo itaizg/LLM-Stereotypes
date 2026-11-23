@@ -162,6 +162,7 @@ The FR-016a re-check policy.
 | `last_reason`, `last_reason_class` | text | |
 | `transient_attempts` | int | at most 3 |
 | `last_checked_at` | timestamptz | |
+| `last_size_bytes`, `last_etag` | bigint NULL, text NULL | from the last passing probe; the probe-only re-check compares them |
 
 ### `host_requests` (existing)
 
@@ -175,13 +176,21 @@ These changes reach existing stores through a migration, not only through
 
 - **`exams.exam_id`:** the CHECK listing the six keys becomes
   `exam_id ~ '^[a-z][a-z0-9_]{1,40}$'`, the key rule of the decisions file, so that an
-  approved new exam can be inserted (FR-028).
+  approved new exam can be inserted (FR-028). The writer is the existing `run_catalog`
+  in `pipeline/acquire.py`, fed by `manifests.catalog_view()`: `catalog.yaml` plus one
+  `Exam` per `exam_added` event (name, body and language from the event; `domains` from
+  the event's domain plus its `domain_allowlisted` domains; `publishes_keys = true`,
+  with the approving decision and proposal as `keys_evidence`; the default rate limit;
+  no seeds or parse config, so extraction skips it until the maintainer adds a
+  `catalog.yaml` entry, which then takes precedence).
 - **`sources.discovery_method`:** its CHECK constraint adds `'crawler'`.
 - **`questions` and `answer_keys`:** a `needs_reprocess boolean DEFAULT false` column,
   set by replaying a `review_reopened` event (FR-021b).
 - **Origin labels:** questions and keys already carry their source. `third_party` origin
-  is derived from the source's ledger `candidate` event (FR-029). How the dataset card
-  counts are reported is spec 001's flattened view.
+  is derived from the source's ledger `candidate` event (FR-029), with no new column.
+  `manifests.origin_counts()` gives the per-exam official and third-party counts of
+  questions and keys; `pipeline candidates` prints them, and spec 001's dataset card
+  reads the same function when it is built.
 
 ### Schema migration
 
@@ -256,8 +265,9 @@ running ──unhandled error──> failed
 - permanent failure: skip, unless `refresh`;
 - transient failure: re-check only if `last_checked_at` is at least 7 days ago and
   `transient_attempts` < 3;
-- passed: skip, unless `refresh` or the content may have changed. This is the cheap
-  probe-only path, which compares `size_bytes` and `ETag` and samples only on a change.
+- passed: probe only. If `size_bytes` and `ETag` match `last_size_bytes` and
+  `last_etag`, the probe returns `unchanged`, nothing is sampled, and `write_proposal`
+  takes the no-op path. Otherwise, or with `refresh`, the URL is sampled again.
 
 ## Crawler memory (XERJ `/_memory/agent-crawler`)
 

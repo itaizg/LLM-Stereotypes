@@ -52,8 +52,9 @@ the database tests skip and the total drops below 85% (see the comment in
 
 ## 3. Host-slot limiter across processes (FR-010)
 
-`tests/crawler/test_slots.py` starts two connections that reserve the same host in a
-tight loop against loopback Postgres. **Expected:** the granted slot times are at least
+`tests/pipeline/test_store.py` starts two connections that reserve the same host in a
+tight loop against loopback Postgres (`tests/crawler/test_slots.py` covers the crawler's
+async wrapper with a virtual clock). **Expected:** the granted slot times are at least
 5 s apart by the database clock, and no two are equal.
 
 ## 4. Review page: Story 2

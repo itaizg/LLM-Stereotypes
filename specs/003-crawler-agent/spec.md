@@ -327,7 +327,9 @@ proposals.
 - **FR-029**: An approved third-party source MUST be usable downstream for both
   questions and answer keys. Every question and key that comes from it MUST be labelled
   `third_party` along with its source. The dataset card MUST report, per exam, how many
-  questions and keys are official and how many are third-party.
+  questions and keys are official and how many are third-party. The card itself is
+  spec 001's output; this feature supplies the per-exam counts it reports and shows them
+  in the pipeline's candidate listing until the card exists.
 
 **Memory, safety and observability**
 

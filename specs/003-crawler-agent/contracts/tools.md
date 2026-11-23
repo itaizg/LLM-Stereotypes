@@ -62,7 +62,11 @@ through `netsafe` (address and redirect policy) and `slots` (host spacing).
   - `reachable = passed` only for a 2xx final status, with robots allowing the path and
     no login, paywall or CAPTCHA signal;
   - it records the probe in run state, which unlocks `sample_content` for that URL
-    (research R4).
+    (research R4);
+  - for a URL that passed before, `unchanged = true` when `size_bytes` and `ETag` match
+    the stored `last_size_bytes` and `last_etag` in `crawler_url_status`. The agent then
+    skips sampling, and `write_proposal` takes the no-op path (data-model.md, "URL
+    re-check").
 
 ## 3. `sample_content(url: str) -> SampleResult`
 

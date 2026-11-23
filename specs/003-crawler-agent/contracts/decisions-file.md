@@ -56,6 +56,8 @@ the model to build the page.
 | Exactly repeated decision | No change (idempotent): the members' latest `review` event already has the same decision, edition, role and reason |
 | Changed decision on the same revision | A new `review` event; the latest review decides, as in `pipeline review`, and `review_state` follows it. `exam_added` and `domain_allowlisted` events are not withdrawn: they record catalog facts, not the source's status |
 
+The page does not compute `decision_id`, `content_hash` or the member list: they come
+from `crawler.review.decision_skeletons()` and are embedded per group (research R15).
 `decision_id` names the group and revisions, not the outcome, so a changed decision
 keeps its id. Idempotency is judged against the latest `review` event, not the id.
 
