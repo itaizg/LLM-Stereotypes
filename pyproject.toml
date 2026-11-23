@@ -106,8 +106,11 @@ testpaths = ["tests"]
 # needs >= 85% coverage). `pytest --cov` measures the packages below and fails under the
 # threshold. It is opt-in rather than in addopts: CI runs the harness, pipeline and dagster
 # tests as separate jobs, and each would fall short on the packages it does not test.
+# CI's "coverage" job combines the three jobs' data and applies the threshold there.
 [tool.coverage.run]
 source = ["harness", "pipeline", "orchestration"]
+# CI combines the data of three jobs; relative paths keep it mergeable.
+relative_files = true
 # iCloud Drive leaves "name 2.py" conflict copies in the working tree; they are never
 # tracked and must not count.
 omit = ["*/* [0-9].py"]
