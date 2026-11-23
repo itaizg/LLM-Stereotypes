@@ -164,6 +164,8 @@ cython_debug/
 
 # Harness run cache and downloaded source PDFs (not redistributed)
 results/cache/
+# Crawler review pages and decision files (docs/briefs/crawler-agent.md).
+results/crawler/
 data/pdfs/
 
 # Throwaway artifacts from the CI harness-smoke job (.github/workflows/ci.yml)
