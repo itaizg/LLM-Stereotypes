@@ -19,6 +19,7 @@ dev = [
     "pre-commit==4.4.0",
     "pre-commit-uv==4.3.0",
     "ty==0.0.96",
+    "pytest-cov==7.1.0",
 ]
 model = [
     "torch",
@@ -100,3 +101,18 @@ allowed-unresolved-imports = ["torch", "transformers", "openai"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Coverage gate (constitution 1.4.0, "Constraints for agentic work": deterministic code
+# needs >= 85% coverage). `pytest --cov` measures the packages below and fails under the
+# threshold. It is opt-in rather than in addopts: CI runs the harness, pipeline and dagster
+# tests as separate jobs, and each would fall short on the packages it does not test.
+[tool.coverage.run]
+source = ["harness", "pipeline", "orchestration"]
+# iCloud Drive leaves "name 2.py" conflict copies in the working tree; they are never
+# tracked and must not count.
+omit = ["*/* [0-9].py"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
