@@ -272,8 +272,30 @@ def _tracked_files(repo_root: Path) -> list[str]:
     return [p for p in result.stdout.decode("utf-8").split("\0") if p]
 
 
-def scan(repo_root: Path) -> list[GuardHit]:
-    """Check every tracked file against the corpus rules (FR-025, FR-026)."""
+def _files_under(path: Path) -> Iterator[Path]:
+    """Every regular file under ``path`` (or ``path`` itself), symlinks not followed."""
+    if not path.exists():
+        raise FileNotFoundError(f"no such path: {path}")
+    if path.is_symlink() and path.is_file():
+        # is_file() follows links; yielding the target would scan outside the path
+        # that was asked for.
+        raise ValueError(f"not scanning a symlink: {path}")
+    if path.is_file():
+        yield path
+        return
+    for found in sorted(path.rglob("*")):
+        if found.is_file() and not found.is_symlink():
+            yield found
+
+
+def scan(repo_root: Path, extra_paths: Sequence[Path] = ()) -> list[GuardHit]:
+    """Check every tracked file against the corpus rules (FR-025, FR-026).
+
+    ``extra_paths`` adds every regular file under them, tracked or not, but for
+    corpus text only: untracked output such as task logs has no allowlist, and a
+    binary suffix there is not a commit risk. A path that does not exist raises,
+    so a typo cannot pass the check by scanning nothing.
+    """
     samples = load_allowlist(repo_root / ALLOWLIST_PATH)
     corpus = load_fingerprints(repo_root / FINGERPRINTS_PATH)
     allowlisted = {s.path for s in samples}
@@ -306,13 +328,34 @@ def scan(repo_root: Path) -> list[GuardHit]:
             continue
         if any(fingerprints_of(s) & corpus for s in _strings_of_file(file_path)):
             hits.append(GuardHit(name, "corpus_text"))
+
+    seen = {(h.path, h.kind) for h in hits}
+    for extra in extra_paths:
+        for file_path in _files_under(extra):  # also rejects a missing path
+            try:
+                name = file_path.resolve().relative_to(repo_root.resolve()).as_posix()
+            except ValueError:
+                name = file_path.as_posix()
+            if (name, "corpus_text") in seen:
+                continue
+            strings = _strings_of_file(file_path) if corpus else ()
+            if any(fingerprints_of(s) & corpus for s in strings):
+                hits.append(GuardHit(name, "corpus_text"))
+                seen.add((name, "corpus_text"))
     return hits
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the guard from the repository root; exit 3 on any hit (integrity refusal)."""
-    del argv  # The guard takes no arguments; the signature matches other entry points.
-    hits = scan(Path.cwd())
+    """Run the guard from the repository root; exit 3 on any hit (integrity refusal).
+
+    Optional arguments are extra paths to scan for corpus text (spec 002, P4).
+    """
+    paths = [Path(a) for a in (sys.argv[1:] if argv is None else argv)]
+    try:
+        hits = scan(Path.cwd(), paths)
+    except FileNotFoundError as error:
+        print(f"corpus-guard: {error}", file=sys.stderr)
+        return 2
     for hit in hits:
         print(f"corpus-guard: {hit.kind}: {hit.path}")
     return 3 if hits else 0

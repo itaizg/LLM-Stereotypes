@@ -13,15 +13,18 @@ says it is busy, and never follow a redirect off the allowlist.
 from __future__ import annotations
 
 import asyncio
+import ssl
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Protocol
 from urllib.parse import urldefrag, urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
 
+import certifi
 import httpx
 from bs4 import BeautifulSoup, Tag, UnicodeDammit
 from bs4.dammit import EncodingDetector
@@ -31,11 +34,13 @@ __all__ = [
     "Clock",
     "Fetched",
     "Fetcher",
+    "HostLedger",
     "SystemClock",
     "decode_html",
     "extract_links",
     "new_client",
     "retry_after_seconds",
+    "tls_context",
 ]
 
 # No personal contact details: the repository URL identifies the project.
@@ -74,6 +79,18 @@ class SystemClock:
         await asyncio.sleep(seconds)
 
 
+class HostLedger(Protocol):
+    """Where each host's last request time is kept between commands (SC-006).
+
+    Times are wall-clock epoch seconds: a monotonic clock means nothing to the
+    next process. The Postgres-backed one is in ``store.py``.
+    """
+
+    def last(self, host: str) -> float | None: ...
+
+    def record(self, host: str, at: float) -> None: ...
+
+
 @dataclass(frozen=True)
 class Fetched:
     """The result of one policy-checked GET."""
@@ -87,9 +104,30 @@ class Fetched:
     last_modified: str | None = None
 
 
+INTERMEDIATES = Path(__file__).with_name("intermediates.pem")
+
+
+def tls_context() -> ssl.SSLContext:
+    """certifi's roots, plus intermediates that some official hosts fail to send.
+
+    A host that omits its intermediate certificate fails verification in OpenSSL,
+    and robots.txt then counts as unreachable, which refuses the whole host. The
+    extra intermediates help build a chain but can never end one: Python 3.13
+    trusts a chain that stops at any certificate in the store
+    (``VERIFY_X509_PARTIAL_CHAIN``), so that flag is cleared and every chain must
+    still reach a root in certifi.
+    """
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.load_verify_locations(cafile=str(INTERMEDIATES))
+    context.verify_flags &= ~ssl.VERIFY_X509_PARTIAL_CHAIN
+    return context
+
+
 def new_client() -> httpx.AsyncClient:
     """The CLI's HTTP client: redirects are followed by ``Fetcher``, not httpx."""
-    return httpx.AsyncClient(follow_redirects=False, timeout=REQUEST_TIMEOUT)
+    return httpx.AsyncClient(
+        follow_redirects=False, timeout=REQUEST_TIMEOUT, verify=tls_context()
+    )
 
 
 def retry_after_seconds(response: httpx.Response) -> float | None:
@@ -116,6 +154,9 @@ class Fetcher:
     """GET with the allowlist, robots.txt, redirect, and rate-limit rules applied.
 
     One instance per command run, so robots.txt is fetched once per domain.
+    Within a run, spacing uses the monotonic ``clock``. Across runs it uses the
+    optional ``ledger`` and the wall clock: the first request to a host waits out
+    whatever is left of the interval since the previous command's last request.
     """
 
     def __init__(
@@ -123,10 +164,14 @@ class Fetcher:
         client: httpx.AsyncClient,
         clock: Clock,
         interval: Callable[[str], float],
+        ledger: HostLedger | None = None,
+        wall: Callable[[], float] = time.time,
     ) -> None:
         self._client = client
         self._clock = clock
         self._interval = interval
+        self._ledger = ledger
+        self._wall = wall
         self._locks: dict[str, asyncio.Lock] = {}
         self._last: dict[str, float] = {}
         # Set by Retry-After or backoff: no request to the host before this time.
@@ -143,15 +188,29 @@ class Fetcher:
             last = self._last.get(host)
             if last is not None:
                 ready = max(ready, last + self._interval(host))
+            elif self._ledger is not None:
+                previous = self._ledger.last(host)
+                if previous is not None:
+                    # A time in the future (clock skew) counts as now.
+                    elapsed = max(0.0, self._wall() - previous)
+                    ready = max(
+                        ready, self._clock.now() + self._interval(host) - elapsed
+                    )
             wait = ready - self._clock.now()
             if wait > 0:
                 await self._clock.sleep(wait)
+            if self._ledger is not None:
+                # Reserve the slot before sending: a process killed mid-request
+                # leaves this time behind, so the next command still waits.
+                self._ledger.record(host, self._wall())
             try:
                 return await self._client.get(
                     url, headers={"User-Agent": USER_AGENT, **(headers or {})}
                 )
             finally:
                 self._last[host] = self._clock.now()
+                if self._ledger is not None:
+                    self._ledger.record(host, self._wall())
 
     async def _polite_get(
         self, url: str, headers: dict[str, str] | None = None

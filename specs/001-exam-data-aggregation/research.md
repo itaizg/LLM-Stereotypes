@@ -21,6 +21,11 @@ Clarifications, planning session).
      can tell "the body said so" from "the official archive has no such paper".
   2. `manual`: `pipeline discover --add-url URL --edition E` records a URL the maintainer
      found by browsing or by any search engine of their choice.
+  3. `auto_fetch` (added 2026-11-19): an exam may list URL patterns. `fetch` takes pending
+     candidates that match a pattern and are on the allowlist, as well as approved ones.
+     The pattern is the maintainer's committed decision (FR-007 as amended), so a listing
+     of hundreds of files does not need hundreds of reviews. Approval still links each
+     file to an edition before it is used.
   Discovery sits behind one function signature, so a search-API method can be added later
   without touching other stages.
 - **Rationale**: Google's own overview page states that the Custom Search JSON API "is

@@ -1,0 +1,16 @@
+# The build needs only pyproject.toml, uv.lock and orchestration/. Everything
+# else stays out of the build context (the repository is mounted at run time).
+.git
+.venv
+.pipeline-data
+exports
+results
+legacy
+data/pdfs
+orchestration/dagster_home/*.db
+orchestration/dagster_home/history
+orchestration/dagster_home/storage
+**/__pycache__
+.ruff_cache
+.pytest_cache
+*.egg-info

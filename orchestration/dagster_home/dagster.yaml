@@ -1,0 +1,14 @@
+# Instance config for `dagster dev` on the Mac (specs/002-airflow-orchestration).
+#
+#   DAGSTER_HOME=$PWD/orchestration/dagster_home uv run dagster dev \
+#     -m exam_dagster.definitions -d orchestration
+#
+# Run history lives in SQLite files in this folder (gitignored, never corpus text).
+# One writer at a time: every asset that writes the pipeline store shares the
+# `pipeline_writer` pool, and the pool allows one running step (research A4).
+concurrency:
+  pools:
+    default_limit: 1
+
+telemetry:
+  enabled: false

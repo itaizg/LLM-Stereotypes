@@ -371,6 +371,153 @@ class TestCorpusGuard:
         assert corpus.main([]) == 0
 
 
+class TestGuardPaths:
+    """P4: ``python -m pipeline.corpus DIR`` also scans files git does not track.
+
+    Used on Dagster's run storage (SC-009), which are untracked and may be anything.
+    """
+
+    @pytest.fixture
+    def root(self, tmp_path: Path) -> Path:
+        return make_repo(
+            tmp_path,
+            {"README.md": "Ordinary prose."},
+            fingerprints=build_fingerprints([LONG_EN]),
+        )
+
+    def test_an_untracked_file_under_a_path_is_scanned(self, root: Path) -> None:
+        logs = root / "logs" / "run1"
+        logs.mkdir(parents=True)
+        (logs / "task.log").write_text(f"INFO {LONG_EN.upper()}\n", encoding="utf-8")
+        (logs / "clean.log").write_text("INFO fetched 3 files\n", encoding="utf-8")
+
+        hits = corpus.scan(root, [root / "logs"])
+
+        assert {(h.path, h.kind) for h in hits} == {
+            ("logs/run1/task.log", "corpus_text")
+        }
+
+    def test_files_outside_the_given_paths_are_not_scanned(self, root: Path) -> None:
+        (root / "elsewhere").mkdir()
+        (root / "elsewhere" / "x.log").write_text(LONG_EN, encoding="utf-8")
+        (root / "logs").mkdir()
+
+        assert corpus.scan(root, [root / "logs"]) == []
+
+    def test_binary_suffix_and_allowlist_rules_do_not_apply_to_them(
+        self, root: Path
+    ) -> None:
+        (root / "logs").mkdir()
+        (root / "logs" / "paper.pdf").write_bytes(b"%PDF-1.7 binary")
+
+        assert corpus.scan(root, [root / "logs"]) == []
+
+    def test_escaped_text_in_an_untracked_json_file_is_still_found(
+        self, root: Path
+    ) -> None:
+        (root / "logs").mkdir()
+        (root / "logs" / "xcom.json").write_text(
+            json.dumps({"stem": LONG_EN}).replace("a", "\\u0061"), encoding="utf-8"
+        )
+
+        hits = corpus.scan(root, [root / "logs"])
+
+        assert [h.kind for h in hits] == ["corpus_text"]
+
+    def test_a_symlink_to_a_file_is_refused_not_followed(self, root: Path) -> None:
+        (root / "elsewhere").mkdir()
+        (root / "elsewhere" / "x.log").write_text(LONG_EN, encoding="utf-8")
+        (root / "link.log").symlink_to(root / "elsewhere" / "x.log")
+
+        with pytest.raises(ValueError, match="symlink"):
+            corpus.scan(root, [root / "link.log"])
+
+    def test_a_missing_path_is_an_error_not_a_pass(self, root: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            corpus.scan(root, [root / "no-such-dir"])
+
+    def test_main_with_a_path_exits_3_on_a_hit_and_names_only_the_file(
+        self,
+        root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        (root / "logs").mkdir()
+        (root / "logs" / "task.log").write_text(LONG_EN, encoding="utf-8")
+        monkeypatch.chdir(root)
+
+        assert corpus.main(["logs"]) == 3
+        out = capsys.readouterr().out
+        assert "logs/task.log" in out and "corpus_text" in out
+        assert "arctic" not in out
+
+    def test_main_with_a_clean_path_exits_0(
+        self, root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (root / "logs").mkdir()
+        (root / "logs" / "task.log").write_text("INFO ok", encoding="utf-8")
+        monkeypatch.chdir(root)
+
+        assert corpus.main(["logs"]) == 0
+
+    def test_main_without_paths_behaves_as_before(
+        self, root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (root / "untracked.log").write_text(LONG_EN, encoding="utf-8")
+        monkeypatch.chdir(root)
+
+        assert corpus.main([]) == 0  # untracked and not named: not scanned
+
+
+class TestOrchestrationIsolation:
+    """SC-008, FR-002, FR-020: Dagster never enters the harness or the pipeline.
+
+    Dagster is an optional extra (``orchestration``) used only by ``orchestration/``,
+    which runs the pipeline as a subprocess. The core install and the ``pipeline`` and
+    ``model`` extras stay free of it.
+    """
+
+    def test_no_python_file_in_harness_or_pipeline_imports_dagster(self) -> None:
+        offenders: list[str] = []
+        for folder in ("harness", "pipeline"):
+            for source in sorted((REPO_ROOT / folder).rglob("*.py")):
+                tree = ast.parse(source.read_text(encoding="utf-8"))
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        names = [alias.name for alias in node.names]
+                    elif isinstance(node, ast.ImportFrom) and node.module:
+                        names = [node.module]
+                    else:
+                        continue
+                    if any(
+                        n in {"dagster", "exam_dagster"}
+                        or n.startswith(("dagster.", "exam_dagster."))
+                        for n in names
+                    ):
+                        offenders.append(
+                            f"{source.relative_to(REPO_ROOT)}:{node.lineno}"
+                        )
+        assert offenders == []
+
+    def test_only_the_orchestration_extra_lists_dagster(self) -> None:
+        import tomllib
+
+        project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))[
+            "project"
+        ]
+        listed = {
+            "core": project.get("dependencies", []),
+            **project.get("optional-dependencies", {}),
+        }
+        holders = {
+            name
+            for name, requirements in listed.items()
+            if any("dagster" in r.lower() for r in requirements)
+        }
+
+        assert holders == {"orchestration"}
+
+
 class TestArchitecture:
     def test_harness_never_imports_pipeline(self) -> None:
         offenders: list[str] = []

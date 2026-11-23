@@ -26,7 +26,9 @@ from pipeline.acquire import (
 )
 from pipeline.blobs import LocalBlobStore
 from pipeline.manifests import (
+    CatalogError,
     SourceState,
+    artifact_rows,
     load_catalog,
     read_ledger,
     replay_ledger,
@@ -548,6 +550,116 @@ class TestFetch:
         dataset.save()
         run_fetch(dataset, web, blob_store, clock)
         assert marker not in dataset.ledger_path.read_text(encoding="utf-8")
+
+
+class TestAutoFetch:
+    """Committed ``auto_fetch`` patterns fetch pending candidates (FR-007 amended)."""
+
+    FILES = rf"https://{HOST.replace('.', r'\.')}/files/.+"
+
+    def pending(self, ds: DatasetBuilder, url: str) -> str:
+        return ds.add_source(url, SAT, "paper", approve=False)
+
+    def allow(self, ds: DatasetBuilder, *patterns: str) -> None:
+        ds.catalog["exams"]["sat"]["auto_fetch"] = list(patterns or [self.FILES])
+        ds.save()
+
+    def test_a_pending_candidate_matching_a_pattern_is_fetched(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        source = self.pending(dataset, f"https://{HOST}/files/2020.pdf")
+        self.allow(dataset)
+        web.add(f"https://{HOST}/files/2020.pdf", b"%PDF auto")
+        summary = run_fetch(dataset, web, blob_store, clock)
+        state = sources(dataset)[source]
+        assert summary.fetched == 1
+        assert state.fetch_outcome == "fetched"
+        assert state.decision == "pending"
+        assert blob_store.get(sha(b"%PDF auto")) == b"%PDF auto"
+
+    def test_non_matching_and_rejected_candidates_are_not_fetched(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        self.pending(dataset, f"https://{HOST}/news/page")
+        rejected = self.pending(dataset, f"https://{HOST}/files/bad.pdf")
+        dataset.review(rejected, SAT, "paper", approve=False, reason="not official")
+        self.allow(dataset)
+        run_fetch(dataset, web, blob_store, clock)
+        assert f"https://{HOST}/news/page" not in web.urls()
+        assert f"https://{HOST}/files/bad.pdf" not in web.urls()
+
+    def test_a_pattern_never_widens_the_allowlist(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        self.pending(dataset, "https://elsewhere.test/files/x.pdf")
+        self.allow(dataset, r"https://.+")
+        run_fetch(dataset, web, blob_store, clock)
+        assert "https://elsewhere.test/files/x.pdf" not in web.urls()
+
+    def test_another_exams_pattern_does_not_apply_under_its_filter(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        self.pending(dataset, f"https://{HOST}/files/2020.pdf")
+        self.allow(dataset)
+        run_fetch(dataset, web, blob_store, clock, exam="enem")
+        assert f"https://{HOST}/files/2020.pdf" not in web.urls()
+
+    def test_a_second_run_skips_what_it_fetched(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        self.pending(dataset, f"https://{HOST}/files/2020.pdf")
+        self.allow(dataset)
+        web.add(f"https://{HOST}/files/2020.pdf", b"%PDF auto")
+        run_fetch(dataset, web, blob_store, clock)
+        before = dataset.ledger_path.read_bytes()
+        summary = run_fetch(dataset, web, blob_store, clock)
+        assert summary.skipped == 1
+        assert dataset.ledger_path.read_bytes() == before
+
+    def test_an_unapproved_file_is_no_artifact_until_approved(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        source = self.pending(dataset, f"https://{HOST}/files/2020.pdf")
+        self.allow(dataset)
+        web.add(f"https://{HOST}/files/2020.pdf", b"%PDF auto")
+        run_fetch(dataset, web, blob_store, clock)
+
+        def rows() -> list[dict[str, object]]:
+            state = replay_ledger(read_ledger(dataset.ledger_path))
+            return [r for r in artifact_rows(state) if r["source_id"] == source]
+
+        assert rows() == []
+        dataset.review(source, SAT, "paper")
+        assert [r["edition_id"] for r in rows()] == [SAT]
+
+    def test_a_bad_pattern_is_a_catalog_error(self, dataset: DatasetBuilder) -> None:
+        self.allow(dataset, "(unclosed")
+        with pytest.raises(CatalogError, match="auto_fetch"):
+            load_catalog(dataset.catalog_path)
 
 
 class TestConditionalRefresh:

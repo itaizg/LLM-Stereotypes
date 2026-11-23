@@ -32,12 +32,22 @@ model = [
 pipeline = [
     "psycopg[binary]>=3.2",
     "httpx>=0.27",
+    "certifi>=2024.2.2",
     "beautifulsoup4>=4.12",
     "boto3>=1.35",
     "pyarrow>=17.0",
     "pdfplumber>=0.11",
     "pytesseract>=0.3.13",
     "openai>=1.50",
+]
+
+# Dagster orchestration (specs/002-airflow-orchestration, amendment A3). Optional and
+# never imported by harness/ or pipeline/; orchestration/ runs the pipeline as a
+# subprocess, so Dagster only needs to sit in the same environment.
+orchestration = [
+    "dagster==1.13.30",
+    "dagster-webserver==1.13.30",
+    "dagster-postgres==0.29.30",
 ]
 
 [project.scripts]
@@ -74,6 +84,9 @@ allowed-confusables = ["×"]
 
 [tool.ty.environment]
 python-version = "3.13"
+# `dagster dev -d orchestration` puts that folder on sys.path, so the code location is
+# imported as `exam_dagster`; the type check needs the same view.
+extra-paths = ["orchestration"]
 
 [tool.ty.src]
 # legacy/ is the preserved pre-harness code (exempt per the constitution);

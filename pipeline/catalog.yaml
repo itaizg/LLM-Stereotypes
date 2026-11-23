@@ -23,6 +23,12 @@
 # then set `keys_evidence: {source_id: SOURCE_ID, note: "..."}` on the exam. An exam whose
 # body does not publish keys is out of scope: removing it is a spec change, and
 # `publishes_keys: false` makes `pipeline catalog` refuse.
+#
+# auto_fetch (FR-007 as amended): an optional list of URL regexes per exam. `fetch` also
+# takes pending candidates whose URL fully matches one, if their domain is allowlisted, so
+# an official file host's hundreds of PDFs need no review one by one. Such a file is
+# stored and logged; it becomes an artifact only when `pipeline review --approve` links it
+# to an edition.
 version: 1
 
 translation:
@@ -38,8 +44,14 @@ exams:
     body: College Board
     language: en
     publishes_keys: true # TODO: cite an approved College Board answer-key source in keys_evidence (see header)
-    domains: [] # TODO: confirm hostnames from approved College Board sources; allowlist only those hosts
-    seeds: [] # TODO: add official College Board archive/index URLs; mark complete_listing only if it is demonstrably complete
+    domains: [satsuite.collegeboard.org]
+    seeds:
+      # College Board's full-length, nonadaptive SAT practice tests (FR-005: kind practice).
+      - url: https://satsuite.collegeboard.org/practice/practice-tests/paper
+        complete_listing: false
+    # Only the SAT test and answer-explanation PDFs; PSAT, scoring guides and essays are not
+    # in scope.
+    auto_fetch: ['https://satsuite\.collegeboard\.org/media/pdf/sat-practice-test-\d+(-answers)?-digital\.pdf']
     parse: &provisional_parse
       item_marker: '^(\d+)\.'
       choice_markers: [A, B, C, D]
@@ -52,7 +64,10 @@ exams:
     language: he
     publishes_keys: true # TODO: cite an approved NITE answer-key source in keys_evidence (see header)
     domains: [www.nite.org.il]
-    seeds: [] # TODO: add official NITE exam/archive index URLs; mark complete_listing only if it is demonstrably complete
+    # Not ingested (decided 2026-11-19, TODO.md): NITE's practice-test page publishes no
+    # answer keys (FR-006), and its terms forbid use "including for research" without
+    # NITE's written consent. No seeds, so nothing is discovered or fetched.
+    seeds: []
     parse: *provisional_parse
 
   csat:
@@ -70,7 +85,9 @@ exams:
     name: National College Entrance Examination (Gaokao)
     body: Ministry of Education of the People's Republic of China
     language: zh-Hans
-    publishes_keys: true # TODO: verify an official body publishes keys; if so, cite the approved source in keys_evidence (see header)
+    # TODO (TODO.md): gaokao.neea.edu.cn has commentary (试题评析), not papers or keys. No
+    # official answer-key source found yet, so FR-006 is unmet; nothing is fetched.
+    publishes_keys: true # unverified, see above
     domains: [www.moe.gov.cn, gaokao.neea.edu.cn]
     seeds:
       - url: https://gaokao.neea.edu.cn/
@@ -81,26 +98,3403 @@ exams:
     name: Common Test for University Admissions (successor to the National Center Test)
     body: National Center for University Entrance Examinations
     language: ja
-    publishes_keys: true # TODO: cite an approved DNC answer-key source in keys_evidence (see header)
+    publishes_keys: true
+    # DNC publishes the answers (正解) for every subject on its kakomondai pages.
+    keys_evidence: {source_id: src_c1ddffef6bb4ddd1, note: "DNC answers, 2025 main test, Japanese (国語)"}
     domains: [www.dnc.ac.jp]
     seeds:
       - url: https://www.dnc.ac.jp/kyotsu/
         complete_listing: false
+      # DNC keeps only the last three years of papers. R6 (令和6年度) is the January 2024
+      # test and R7 the January 2025 test; R8 (2026) is outside the 2015-2025 scope.
+      # Past test information: the official test dates (release_date evidence).
+      - url: https://www.dnc.ac.jp/kyotsu/kako_shiken_jouhou/index.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kako_shiken_jouhou/r6/index.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kako_shiken_jouhou/r7/index.html
+        complete_listing: false
+      # Main test (honshiken) and make-up test (tuisaishiken): problems and answers.
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honsiken_seikai.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaisiken_seikai.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honsiken_seikai.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+        complete_listing: false
+      - url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaisiken_seikai.html
+        complete_listing: false
+    # DNC serves every paper, answer table and listening file through its album endpoint.
+    auto_fetch: ['https://www\.dnc\.ac\.jp/albums/abm\.php\?.+']
     parse: *provisional_parse
 
   enem:
     name: Exame Nacional do Ensino Médio (ENEM)
     body: INEP
     language: pt-BR
-    publishes_keys: true # TODO: cite an approved INEP answer-key source in keys_evidence (see header)
+    publishes_keys: true
+    # INEP publishes a gabarito beside every caderno on its provas-e-gabaritos year pages.
+    keys_evidence: {source_id: src_12e7cfea1014db84, note: "INEP gabarito, ENEM 2024 regular application, day 1, caderno 1"}
     domains: [www.gov.br, download.inep.gov.br]
     seeds:
       - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos
         # true only once the page is checked to list every year 2015-2025 (index_absence evidence)
         complete_listing: false
+      # The index loads each year's tab with JavaScript from these pages (its data-url
+      # attributes), which link extraction does not see, so they are seeds of their own.
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2015
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2016
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2017
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2018
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2019
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2020
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2021
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2022
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2023
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2024
+        complete_listing: false
+      - url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2025
+        complete_listing: false
+    # INEP's file host: every PDF the year pages link to is fetched without a review.
+    auto_fetch: ['https?://download\.inep\.gov\.br/.+']
     parse: *provisional_parse
 
 # One entry per edition (exam x year x sitting/form/paper), 66 cells in all.
 # Each needs a status (ingested | not_released | blocked) and evidence; see the
 # contract for the fields. Authored by the maintainer as sources are approved.
-editions: []
+editions:
+  - edition_id: enem-2015-ppl-day1
+    exam: enem
+    year: 2015
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2015
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_01506267f7d50638
+        note: "INEP 2015 page, reapplication / PPL, day 1: caderno 9. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2015-ppl-day2
+    exam: enem
+    year: 2015
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2015
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_01506267f7d50638
+        note: "INEP 2015 page, reapplication / PPL, day 2: caderno 15. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2015-regular-day1
+    exam: enem
+    year: 2015
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2015
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_01506267f7d50638
+        note: "INEP 2015 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2015-regular-day2
+    exam: enem
+    year: 2015
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2015
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_01506267f7d50638
+        note: "INEP 2015 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2016-ppl-day1
+    exam: enem
+    year: 2016
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2016
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_f96b55b6c0a2ba50
+        note: "INEP 2016 page, reapplication / PPL, day 1: caderno 9. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2016-ppl-day2
+    exam: enem
+    year: 2016
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2016
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_f96b55b6c0a2ba50
+        note: "INEP 2016 page, reapplication / PPL, day 2: caderno 13. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2016-regular-day1
+    exam: enem
+    year: 2016
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2016
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_f96b55b6c0a2ba50
+        note: "INEP 2016 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2016-regular-day2
+    exam: enem
+    year: 2016
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2016
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_f96b55b6c0a2ba50
+        note: "INEP 2016 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2017-ppl-day1
+    exam: enem
+    year: 2017
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2017
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_add762c69f74fd60
+        note: "INEP 2017 page, reapplication / PPL, day 1: caderno 1. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2017-ppl-day2
+    exam: enem
+    year: 2017
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2017
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_add762c69f74fd60
+        note: "INEP 2017 page, reapplication / PPL, day 2: caderno 5. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2017-regular-day1
+    exam: enem
+    year: 2017
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2017
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_add762c69f74fd60
+        note: "INEP 2017 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2017-regular-day2
+    exam: enem
+    year: 2017
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2017
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_add762c69f74fd60
+        note: "INEP 2017 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2018-ppl-day1
+    exam: enem
+    year: 2018
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2018
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_0bf1f1d8a5f9d7e3
+        note: "INEP 2018 page, reapplication / PPL, day 1: caderno 13. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2018-ppl-day2
+    exam: enem
+    year: 2018
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2018
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_0bf1f1d8a5f9d7e3
+        note: "INEP 2018 page, reapplication / PPL, day 2: caderno 17. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2018-regular-day1
+    exam: enem
+    year: 2018
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2018
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_0bf1f1d8a5f9d7e3
+        note: "INEP 2018 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2018-regular-day2
+    exam: enem
+    year: 2018
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2018
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_0bf1f1d8a5f9d7e3
+        note: "INEP 2018 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2019-ppl-day1
+    exam: enem
+    year: 2019
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2019
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_7ad19939fe87e787
+        note: "INEP 2019 page, reapplication / PPL, day 1: caderno 1. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2019-ppl-day2
+    exam: enem
+    year: 2019
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2019
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_7ad19939fe87e787
+        note: "INEP 2019 page, reapplication / PPL, day 2: caderno 5. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2019-regular-day1
+    exam: enem
+    year: 2019
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2019
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_7ad19939fe87e787
+        note: "INEP 2019 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2019-regular-day2
+    exam: enem
+    year: 2019
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2020-09-15
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2019
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_7ad19939fe87e787
+        note: "INEP 2019 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date (the gov.br migration, not the original release)"
+  - edition_id: enem-2020-digital-day1
+    exam: enem
+    year: 2020
+    sitting: digital-day1
+    kind: administered
+    status: ingested
+    release_date: 2021-01-27
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2020
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_390c111a65a22354
+        note: "INEP 2020 page, digital application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2020-digital-day2
+    exam: enem
+    year: 2020
+    sitting: digital-day2
+    kind: administered
+    status: ingested
+    release_date: 2021-01-27
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2020
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_390c111a65a22354
+        note: "INEP 2020 page, digital application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2020-ppl-day1
+    exam: enem
+    year: 2020
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2021-01-27
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2020
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_390c111a65a22354
+        note: "INEP 2020 page, reapplication / PPL, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2020-ppl-day2
+    exam: enem
+    year: 2020
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2021-01-27
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2020
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_390c111a65a22354
+        note: "INEP 2020 page, reapplication / PPL, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2020-regular-day1
+    exam: enem
+    year: 2020
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2021-01-27
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2020
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_390c111a65a22354
+        note: "INEP 2020 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2020-regular-day2
+    exam: enem
+    year: 2020
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2021-01-27
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2020
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_390c111a65a22354
+        note: "INEP 2020 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2021-digital-day1
+    exam: enem
+    year: 2021
+    sitting: digital-day1
+    kind: administered
+    status: ingested
+    release_date: 2021-12-01
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2021
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_cce10fc681ba51a5
+        note: "INEP 2021 page, digital application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2021-digital-day2
+    exam: enem
+    year: 2021
+    sitting: digital-day2
+    kind: administered
+    status: ingested
+    release_date: 2021-12-01
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2021
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_cce10fc681ba51a5
+        note: "INEP 2021 page, digital application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2021-ppl-day1
+    exam: enem
+    year: 2021
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2021-12-01
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2021
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_cce10fc681ba51a5
+        note: "INEP 2021 page, reapplication / PPL, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2021-ppl-day2
+    exam: enem
+    year: 2021
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2021-12-01
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2021
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_cce10fc681ba51a5
+        note: "INEP 2021 page, reapplication / PPL, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2021-regular-day1
+    exam: enem
+    year: 2021
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2021-12-01
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2021
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_cce10fc681ba51a5
+        note: "INEP 2021 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2021-regular-day2
+    exam: enem
+    year: 2021
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2021-12-01
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2021
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_cce10fc681ba51a5
+        note: "INEP 2021 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2022-digital-day1
+    exam: enem
+    year: 2022
+    sitting: digital-day1
+    kind: administered
+    status: ingested
+    release_date: 2022-11-23
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2022
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_1dd616b93d35d364
+        note: "INEP 2022 page, digital application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2022-digital-day2
+    exam: enem
+    year: 2022
+    sitting: digital-day2
+    kind: administered
+    status: ingested
+    release_date: 2022-11-23
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2022
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_1dd616b93d35d364
+        note: "INEP 2022 page, digital application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2022-ppl-day1
+    exam: enem
+    year: 2022
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2022-11-23
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2022
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_1dd616b93d35d364
+        note: "INEP 2022 page, reapplication / PPL, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2022-ppl-day2
+    exam: enem
+    year: 2022
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2022-11-23
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2022
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_1dd616b93d35d364
+        note: "INEP 2022 page, reapplication / PPL, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2022-regular-day1
+    exam: enem
+    year: 2022
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2022-11-23
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2022
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_1dd616b93d35d364
+        note: "INEP 2022 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2022-regular-day2
+    exam: enem
+    year: 2022
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2022-11-23
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2022
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_1dd616b93d35d364
+        note: "INEP 2022 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2023-ppl-day1
+    exam: enem
+    year: 2023
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2023-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2023
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_8bcf9adc06bfc58b
+        note: "INEP 2023 page, reapplication / PPL, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2023-ppl-day2
+    exam: enem
+    year: 2023
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2023-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2023
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_8bcf9adc06bfc58b
+        note: "INEP 2023 page, reapplication / PPL, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2023-regular-day1
+    exam: enem
+    year: 2023
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2023-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2023
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_8bcf9adc06bfc58b
+        note: "INEP 2023 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2023-regular-day2
+    exam: enem
+    year: 2023
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2023-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2023
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_8bcf9adc06bfc58b
+        note: "INEP 2023 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2024-ppl-day1
+    exam: enem
+    year: 2024
+    sitting: ppl-day1
+    kind: administered
+    status: ingested
+    release_date: 2024-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2024
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d56900849845bfa8
+        note: "INEP 2024 page, reapplication / PPL, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2024-ppl-day2
+    exam: enem
+    year: 2024
+    sitting: ppl-day2
+    kind: administered
+    status: ingested
+    release_date: 2024-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2024
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d56900849845bfa8
+        note: "INEP 2024 page, reapplication / PPL, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2024-regular-day1
+    exam: enem
+    year: 2024
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2024-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2024
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d56900849845bfa8
+        note: "INEP 2024 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2024-regular-day2
+    exam: enem
+    year: 2024
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2024-11-14
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2024
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d56900849845bfa8
+        note: "INEP 2024 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2025-belem-day1
+    exam: enem
+    year: 2025
+    sitting: belem-day1
+    kind: administered
+    status: ingested
+    release_date: 2025-11-13
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2025
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d8068e4a64b4d3ea
+        note: "INEP 2025 page, Belém, Ananindeua and Marituba application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2025-belem-day2
+    exam: enem
+    year: 2025
+    sitting: belem-day2
+    kind: administered
+    status: ingested
+    release_date: 2025-11-13
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2025
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d8068e4a64b4d3ea
+        note: "INEP 2025 page, Belém, Ananindeua and Marituba application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2025-reapplication-day1
+    exam: enem
+    year: 2025
+    sitting: reapplication-day1
+    kind: administered
+    status: ingested
+    release_date: 2025-11-13
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2025
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d8068e4a64b4d3ea
+        note: "INEP 2025 page, reapplication, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2025-reapplication-day2
+    exam: enem
+    year: 2025
+    sitting: reapplication-day2
+    kind: administered
+    status: ingested
+    release_date: 2025-11-13
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2025
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d8068e4a64b4d3ea
+        note: "INEP 2025 page, reapplication, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: enem-2025-regular-day1
+    exam: enem
+    year: 2025
+    sitting: regular-day1
+    kind: administered
+    status: ingested
+    release_date: 2025-11-13
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2025
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d8068e4a64b4d3ea
+        note: "INEP 2025 page, regular application, day 1: caderno 1. release_date is the page's Publicado em date"
+  - edition_id: enem-2025-regular-day2
+    exam: enem
+    year: 2025
+    sitting: regular-day2
+    kind: administered
+    status: ingested
+    release_date: 2025-11-13
+    official_url: https://www.gov.br/inep/pt-br/areas-de-atuacao/avaliacao-e-exames-educacionais/enem/provas-e-gabaritos/2025
+    lineage: enem
+    language: pt-BR
+    evidence:
+      - type: release_page
+        source_id: src_d8068e4a64b4d3ea
+        note: "INEP 2025 page, regular application, day 2: caderno 5. release_date is the page's Publicado em date"
+  - edition_id: common_test-2024-main-kokugo
+    exam: common_test
+    year: 2024
+    sitting: main-kokugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 国語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-butsurikiso
+    exam: common_test
+    year: 2024
+    sitting: main-butsurikiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 物理基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-kagakukiso
+    exam: common_test
+    year: 2024
+    sitting: main-kagakukiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 化学基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-seibutsukiso
+    exam: common_test
+    year: 2024
+    sitting: main-seibutsukiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 生物基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-chigakukiso
+    exam: common_test
+    year: 2024
+    sitting: main-chigakukiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 地学基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-sekaishia
+    exam: common_test
+    year: 2024
+    sitting: main-sekaishia
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 世界史A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-sekaishib
+    exam: common_test
+    year: 2024
+    sitting: main-sekaishib
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 世界史B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-nihonshia
+    exam: common_test
+    year: 2024
+    sitting: main-nihonshia
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 日本史A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-nihonshib
+    exam: common_test
+    year: 2024
+    sitting: main-nihonshib
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 日本史B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-chiria
+    exam: common_test
+    year: 2024
+    sitting: main-chiria
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 地理A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-chirib
+    exam: common_test
+    year: 2024
+    sitting: main-chirib
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 地理B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-butsuri
+    exam: common_test
+    year: 2024
+    sitting: main-butsuri
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 物理"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-kagaku
+    exam: common_test
+    year: 2024
+    sitting: main-kagaku
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 化学"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-seibutsu
+    exam: common_test
+    year: 2024
+    sitting: main-seibutsu
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 生物"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-chigaku
+    exam: common_test
+    year: 2024
+    sitting: main-chigaku
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 地学"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-gendaishakai
+    exam: common_test
+    year: 2024
+    sitting: main-gendaishakai
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 現代社会"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-rinri
+    exam: common_test
+    year: 2024
+    sitting: main-rinri
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 倫理"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-seijikeizai
+    exam: common_test
+    year: 2024
+    sitting: main-seijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 政治・経済"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-rinriseijikeizai
+    exam: common_test
+    year: 2024
+    sitting: main-rinriseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 倫理,政治・経済"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-reading
+    exam: common_test
+    year: 2024
+    sitting: main-reading
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 英語(リーディング)"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-sugaku1
+    exam: common_test
+    year: 2024
+    sitting: main-sugaku1
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 数学I"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-sugaku1a
+    exam: common_test
+    year: 2024
+    sitting: main-sugaku1a
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 数学I・数学A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-listening
+    exam: common_test
+    year: 2024
+    sitting: main-listening
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 英語リスニング"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-sugaku2
+    exam: common_test
+    year: 2024
+    sitting: main-sugaku2
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 数学II"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-sugaku2b
+    exam: common_test
+    year: 2024
+    sitting: main-sugaku2b
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 数学II・数学B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-doitsugo
+    exam: common_test
+    year: 2024
+    sitting: main-doitsugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: ドイツ語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-furansugo
+    exam: common_test
+    year: 2024
+    sitting: main-furansugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: フランス語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-chugokugo
+    exam: common_test
+    year: 2024
+    sitting: main-chugokugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 中国語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-kankokugo
+    exam: common_test
+    year: 2024
+    sitting: main-kankokugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 韓国語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-bokikaikei
+    exam: common_test
+    year: 2024
+    sitting: main-bokikaikei
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 簿記・会計"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-main-johokankeikiso
+    exam: common_test
+    year: 2024
+    sitting: main-johokankeikiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-14
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_62ecf45f498ecda6
+        note: "DNC 2024 main test (本試験) problem page: 情報関係基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 13-14 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-kokugo
+    exam: common_test
+    year: 2024
+    sitting: makeup-kokugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 国語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-sekaishia
+    exam: common_test
+    year: 2024
+    sitting: makeup-sekaishia
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 世界史A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-sekaishib
+    exam: common_test
+    year: 2024
+    sitting: makeup-sekaishib
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 世界史B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-nihonshia
+    exam: common_test
+    year: 2024
+    sitting: makeup-nihonshia
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 日本史A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-nihonshib
+    exam: common_test
+    year: 2024
+    sitting: makeup-nihonshib
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 日本史B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-chiria
+    exam: common_test
+    year: 2024
+    sitting: makeup-chiria
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 地理A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-chirib
+    exam: common_test
+    year: 2024
+    sitting: makeup-chirib
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 地理B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-gendaishakai
+    exam: common_test
+    year: 2024
+    sitting: makeup-gendaishakai
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 現代社会"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-rinri
+    exam: common_test
+    year: 2024
+    sitting: makeup-rinri
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 倫理"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-seijikeizai
+    exam: common_test
+    year: 2024
+    sitting: makeup-seijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 政治・経済"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-rinriseijikeizai
+    exam: common_test
+    year: 2024
+    sitting: makeup-rinriseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 倫理,政治・経済"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-sugaku1
+    exam: common_test
+    year: 2024
+    sitting: makeup-sugaku1
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 数学I"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-sugaku1a
+    exam: common_test
+    year: 2024
+    sitting: makeup-sugaku1a
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 数学I・数学A"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-sugaku2
+    exam: common_test
+    year: 2024
+    sitting: makeup-sugaku2
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 数学II"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-sugaku2b
+    exam: common_test
+    year: 2024
+    sitting: makeup-sugaku2b
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 数学II・数学B"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-bokikaikei
+    exam: common_test
+    year: 2024
+    sitting: makeup-bokikaikei
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 簿記・会計"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-johokankeikiso
+    exam: common_test
+    year: 2024
+    sitting: makeup-johokankeikiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 情報関係基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-butsurikiso
+    exam: common_test
+    year: 2024
+    sitting: makeup-butsurikiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 物理基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-kagakukiso
+    exam: common_test
+    year: 2024
+    sitting: makeup-kagakukiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 化学基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-seibutsukiso
+    exam: common_test
+    year: 2024
+    sitting: makeup-seibutsukiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 生物基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-chigakukiso
+    exam: common_test
+    year: 2024
+    sitting: makeup-chigakukiso
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 地学基礎"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-butsuri
+    exam: common_test
+    year: 2024
+    sitting: makeup-butsuri
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 物理"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-kagaku
+    exam: common_test
+    year: 2024
+    sitting: makeup-kagaku
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 化学"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-seibutsu
+    exam: common_test
+    year: 2024
+    sitting: makeup-seibutsu
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 生物"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-chigaku
+    exam: common_test
+    year: 2024
+    sitting: makeup-chigaku
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 地学"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-reading
+    exam: common_test
+    year: 2024
+    sitting: makeup-reading
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 英語(リーディング)"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-listening
+    exam: common_test
+    year: 2024
+    sitting: makeup-listening
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 英語リスニング"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-doitsugo
+    exam: common_test
+    year: 2024
+    sitting: makeup-doitsugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: ドイツ語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2024-makeup-chugokugo
+    exam: common_test
+    year: 2024
+    sitting: makeup-chugokugo
+    kind: administered
+    status: ingested
+    release_date: 2024-01-28
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r6/r6_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_d7dbe3f576ae6a1a
+        note: "DNC 2024 make-up test (追・再試験) problem page: 中国語"
+      - type: statement
+        source_id: src_360ab7af420d1384
+        note: "DNC test information: held 27-28 January 2024; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kokugo
+    exam: common_test
+    year: 2025
+    sitting: main-kokugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 国語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-chirisougouchiritankyuu
+    exam: common_test
+    year: 2025
+    sitting: main-chirisougouchiritankyuu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 地理総合,地理探究"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-rekisisougounihonshitankyuu
+    exam: common_test
+    year: 2025
+    sitting: main-rekisisougounihonshitankyuu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 歴史総合,日本史探究"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-rekisisougousekaishitankyuu
+    exam: common_test
+    year: 2025
+    sitting: main-rekisisougousekaishitankyuu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 歴史総合,世界史探究"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-koukyorinri
+    exam: common_test
+    year: 2025
+    sitting: main-koukyorinri
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 公共,倫理"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-koukyoseijikeizai
+    exam: common_test
+    year: 2025
+    sitting: main-koukyoseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 公共,政治・経済"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-chirisougou
+    exam: common_test
+    year: 2025
+    sitting: main-chirisougou
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 地理総合/歴史総合/公共"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-rekishisougou
+    exam: common_test
+    year: 2025
+    sitting: main-rekishisougou
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 地理総合/歴史総合/公共"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-koukyo
+    exam: common_test
+    year: 2025
+    sitting: main-koukyo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 地理総合/歴史総合/公共"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuusekaishia
+    exam: common_test
+    year: 2025
+    sitting: main-kyuusekaishia
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧世界史A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuusekaishib
+    exam: common_test
+    year: 2025
+    sitting: main-kyuusekaishib
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧世界史B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuunihonshia
+    exam: common_test
+    year: 2025
+    sitting: main-kyuunihonshia
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧日本史A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuunihonshib
+    exam: common_test
+    year: 2025
+    sitting: main-kyuunihonshib
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧日本史B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuuchiria
+    exam: common_test
+    year: 2025
+    sitting: main-kyuuchiria
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧地理A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuuchirib
+    exam: common_test
+    year: 2025
+    sitting: main-kyuuchirib
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧地理B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuugendaishakai
+    exam: common_test
+    year: 2025
+    sitting: main-kyuugendaishakai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧現代社会"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuurinri
+    exam: common_test
+    year: 2025
+    sitting: main-kyuurinri
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧倫理"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuuseijikeizai
+    exam: common_test
+    year: 2025
+    sitting: main-kyuuseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧政治・経済"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuurinriseijikeizai
+    exam: common_test
+    year: 2025
+    sitting: main-kyuurinriseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧倫理,旧政治・経済"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-sugaku1a
+    exam: common_test
+    year: 2025
+    sitting: main-sugaku1a
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 数学I,数学A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-sugaku1
+    exam: common_test
+    year: 2025
+    sitting: main-sugaku1
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 数学I"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuusugaku1a
+    exam: common_test
+    year: 2025
+    sitting: main-kyuusugaku1a
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧数学I・旧数学A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuusugaku1
+    exam: common_test
+    year: 2025
+    sitting: main-kyuusugaku1
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧数学I"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-sugaku2bc
+    exam: common_test
+    year: 2025
+    sitting: main-sugaku2bc
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 数学II,数学B,数学C"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuusugaku2b
+    exam: common_test
+    year: 2025
+    sitting: main-kyuusugaku2b
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧数学II・旧数学B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuusugaku2
+    exam: common_test
+    year: 2025
+    sitting: main-kyuusugaku2
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧数学II"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuubokikaikei
+    exam: common_test
+    year: 2025
+    sitting: main-kyuubokikaikei
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧簿記・会計"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuujohokankeikiso
+    exam: common_test
+    year: 2025
+    sitting: main-kyuujohokankeikiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧情報関係基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-butsurikiso
+    exam: common_test
+    year: 2025
+    sitting: main-butsurikiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kagakukiso
+    exam: common_test
+    year: 2025
+    sitting: main-kagakukiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-seibutsukiso
+    exam: common_test
+    year: 2025
+    sitting: main-seibutsukiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-chigakukiso
+    exam: common_test
+    year: 2025
+    sitting: main-chigakukiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-butsuri
+    exam: common_test
+    year: 2025
+    sitting: main-butsuri
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 物理"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kagaku
+    exam: common_test
+    year: 2025
+    sitting: main-kagaku
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 化学"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-seibutsu
+    exam: common_test
+    year: 2025
+    sitting: main-seibutsu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 生物"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-chigaku
+    exam: common_test
+    year: 2025
+    sitting: main-chigaku
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 地学"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-reading
+    exam: common_test
+    year: 2025
+    sitting: main-reading
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 英語(リーディング)"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-listening
+    exam: common_test
+    year: 2025
+    sitting: main-listening
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 英語(リスニング)"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-doitsugo
+    exam: common_test
+    year: 2025
+    sitting: main-doitsugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: ドイツ語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-furansugo
+    exam: common_test
+    year: 2025
+    sitting: main-furansugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: フランス語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-chugokugo
+    exam: common_test
+    year: 2025
+    sitting: main-chugokugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 中国語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kankokugo
+    exam: common_test
+    year: 2025
+    sitting: main-kankokugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 韓国語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-joho1
+    exam: common_test
+    year: 2025
+    sitting: main-joho1
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 情報I"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-main-kyuujoho
+    exam: common_test
+    year: 2025
+    sitting: main-kyuujoho
+    kind: administered
+    status: ingested
+    release_date: 2025-01-19
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_honshiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_47fb4c49254acc5f
+        note: "DNC 2025 main test (本試験) problem page: 旧情報"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 18-19 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kokugo
+    exam: common_test
+    year: 2025
+    sitting: makeup-kokugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 国語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-chirisougouchiritankyuu
+    exam: common_test
+    year: 2025
+    sitting: makeup-chirisougouchiritankyuu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 地理総合,地理探究"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-rekisisougounihonshitankyuu
+    exam: common_test
+    year: 2025
+    sitting: makeup-rekisisougounihonshitankyuu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 歴史総合,日本史探究"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-rekisisougousekaishitankyuu
+    exam: common_test
+    year: 2025
+    sitting: makeup-rekisisougousekaishitankyuu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 歴史総合,世界史探究"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-koukyorinri
+    exam: common_test
+    year: 2025
+    sitting: makeup-koukyorinri
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 公共,倫理"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-koukyoseijikeizai
+    exam: common_test
+    year: 2025
+    sitting: makeup-koukyoseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 公共,政治・経済"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-chirisougou
+    exam: common_test
+    year: 2025
+    sitting: makeup-chirisougou
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 地理総合/歴史総合/公共"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-rekishisougou
+    exam: common_test
+    year: 2025
+    sitting: makeup-rekishisougou
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 地理総合/歴史総合/公共"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-koukyo
+    exam: common_test
+    year: 2025
+    sitting: makeup-koukyo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 地理総合/歴史総合/公共"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuusekaishia
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuusekaishia
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧世界史A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuusekaishib
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuusekaishib
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧世界史B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuunihonshia
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuunihonshia
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧日本史A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuunihonshib
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuunihonshib
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧日本史B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuuchiria
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuuchiria
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧地理A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuuchirib
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuuchirib
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧地理B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuugendaishakai
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuugendaishakai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧現代社会"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuurinri
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuurinri
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧倫理"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuuseijikeizai
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuuseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧政治・経済"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuurinriseijikeizai
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuurinriseijikeizai
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧倫理,旧政治・経済"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-sugaku1a
+    exam: common_test
+    year: 2025
+    sitting: makeup-sugaku1a
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 数学I,数学A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-sugaku1
+    exam: common_test
+    year: 2025
+    sitting: makeup-sugaku1
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 数学I"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuusugaku1a
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuusugaku1a
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧数学I・旧数学A"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuusugaku1
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuusugaku1
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧数学I"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-sugaku2bc
+    exam: common_test
+    year: 2025
+    sitting: makeup-sugaku2bc
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 数学II,数学B,数学C"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuusugaku2b
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuusugaku2b
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧数学II・旧数学B"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuusugaku2
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuusugaku2
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧数学II"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-butsurikiso
+    exam: common_test
+    year: 2025
+    sitting: makeup-butsurikiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kagakukiso
+    exam: common_test
+    year: 2025
+    sitting: makeup-kagakukiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-seibutsukiso
+    exam: common_test
+    year: 2025
+    sitting: makeup-seibutsukiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-chigakukiso
+    exam: common_test
+    year: 2025
+    sitting: makeup-chigakukiso
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 物理基礎/化学基礎/生物基礎/地学基礎"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-butsuri
+    exam: common_test
+    year: 2025
+    sitting: makeup-butsuri
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 物理"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kagaku
+    exam: common_test
+    year: 2025
+    sitting: makeup-kagaku
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 化学"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-seibutsu
+    exam: common_test
+    year: 2025
+    sitting: makeup-seibutsu
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 生物"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-chigaku
+    exam: common_test
+    year: 2025
+    sitting: makeup-chigaku
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 地学"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-reading
+    exam: common_test
+    year: 2025
+    sitting: makeup-reading
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 英語(リーディング)"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-listening
+    exam: common_test
+    year: 2025
+    sitting: makeup-listening
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 英語(リスニング)"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-doitsugo
+    exam: common_test
+    year: 2025
+    sitting: makeup-doitsugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: ドイツ語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kankokugo
+    exam: common_test
+    year: 2025
+    sitting: makeup-kankokugo
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 韓国語"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-joho1
+    exam: common_test
+    year: 2025
+    sitting: makeup-joho1
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 情報I"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: common_test-2025-makeup-kyuujoho
+    exam: common_test
+    year: 2025
+    sitting: makeup-kyuujoho
+    kind: administered
+    status: ingested
+    release_date: 2025-01-26
+    official_url: https://www.dnc.ac.jp/kyotsu/kakomondai/r7/r7_tuisaishiken_mondai.html
+    lineage: common_test
+    language: ja
+    evidence:
+      - type: release_page
+        source_id: src_c4f9ae3141173e2a
+        note: "DNC 2025 make-up test (追・再試験) problem page: 旧情報"
+      - type: statement
+        source_id: src_7ca05948581b1d78
+        note: "DNC test information: held 25-26 January 2025; release_date is the sitting's last day"
+  - edition_id: csat-2015-main
+    exam: csat
+    year: 2015
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2016-main
+    exam: csat
+    year: 2016
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2017-main
+    exam: csat
+    year: 2017
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2018-main
+    exam: csat
+    year: 2018
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2019-main
+    exam: csat
+    year: 2019
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2020-main
+    exam: csat
+    year: 2020
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2021-main
+    exam: csat
+    year: 2021
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2022-main
+    exam: csat
+    year: 2022
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2023-main
+    exam: csat
+    year: 2023
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2024-main
+    exam: csat
+    year: 2024
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
+  - edition_id: csat-2025-main
+    exam: csat
+    year: 2025
+    sitting: main
+    kind: administered
+    status: blocked
+    status_reason: robots
+    lineage: csat
+    language: ko
+    evidence:
+      - type: statement
+        source_id: src_6af268928660ab38
+        note: "KICE CSAT site; robots.txt (www.suneung.re.kr and www.kice.re.kr) disallows all paths, so nothing was fetched (ledger: refused_robots)"
