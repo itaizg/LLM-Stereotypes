@@ -11,6 +11,8 @@ Added in 1.4.0 (crawler agent brief, docs/briefs/crawler-agent.md):
   - Section "Constraints for agentic work".
   - Companion document `.specify/memory/memory-architecture.md` (memory layer: Obsidian,
     OKF, XERJ, Jev), referenced by the new section.
+  - Tools: memory is code-managed by default; an agent-callable memory tool is a single
+    tool that counts toward the 3–5 tool limit.
 
 Tooling landed with this amendment:
   - The ≥85% coverage gate: `[tool.coverage]` in pyproject.toml, and CI's `coverage gate`
@@ -214,7 +216,10 @@ how that claim stays true as the code grows.
 
 ### Tools
 - Every tool has a contract, description and definition sufficient for an agent to choose and call it correctly.
-- An agent has no more than 3–5 tools.
+- An agent has no more than 3–5 tools. Every tool the LLM can call counts toward this limit, including a memory tool.
+- **Memory access mode:** each agent reaches its memory in one of two ways, and its brief states which and why:
+  - **Code-managed** (the default): the agent's own code reads and writes its namespace at task boundaries. This is not a tool and does not count toward the limit.
+  - **Memory tool:** an agent that needs mid-task lookups exposes memory as exactly one tool (recall and save behind one interface). It counts toward the limit and defines its own limits like any other tool.
 - Different agents use different tools. **Exception:** the memory layer (XERJ over MCP) is shared by all agents, but each agent is scoped to its own XERJ namespace(s); see `memory-architecture.md`.
 - **Idempotency:** retrying a tool call with the same input must not duplicate side effects.
 - **Termination limits:** every tool defines its own limits (timeout, retry count, result size or cost budget) in its definition.

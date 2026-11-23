@@ -33,6 +33,7 @@ vault/
 ## XERJ namespaces and permissions
 
 - **One namespace per agent:** `/_memory/agent-{name}`. XERJ namespaces are physically isolated, so an agent can't read another agent's namespace.
+- **Access mode:** by default the agent's own code reads and writes its namespace at task boundaries. An agent that needs mid-task lookups instead gets one memory tool, which counts toward its tool limit (constitution, "Tools").
 - **Shared knowledge is the vault index,** which is read-only to agents. Agents don't write to the vault directly; they propose changes through promotion (below).
 - **Deleting a namespace** (`DELETE /_memory/{ns}`) requires HITL approval.
 - **Production runs with XERJ auth and TLS enabled,** never `--insecure`.
