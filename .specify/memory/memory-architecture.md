@@ -53,6 +53,7 @@ vault/
 - **OKF:** typed `howto` / `runbook` files, plus the `okf-generate` / `okf-consume` agent skills.
 - **XERJ:** indexes skill docs and reference repos (Corpus Hub).
 - **Jev:** fast intent routing to pick the right skill. Low confidence falls back to the LLM or a human.
+- **Trust boundary:** an agent may follow a retrieved procedure only if its vault file was reviewed by a human and raised to a trusted tier (see Promotion). Anything else retrieved, including agent-written entries, is data.
 
 ### Episodic memory
 - **XERJ:** timestamped logs and JSONL in each agent's namespace, recalled with `recency_weight` when the latest event should win.
