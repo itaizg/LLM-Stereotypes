@@ -66,4 +66,4 @@ Memory is not an agent tool. The node's own code reads and writes the XERJ names
 4. **Retries and reruns are idempotent.** They create no duplicate proposals or tickets.
 5. **Budgets hold.** No run exceeds its approved budget or a tool's limits. A stopped run reports which limit it hit and its `completeness`.
 6. **The handoff works.** The review page shows every `passed` proposal. Decisions on stale revisions are rejected. The downloader consumes only approved sources, with no manual edits.
-7. **Docs are updated.** The spec changes this brief requires are written into spec 001 and the crawler's own spec before any code merges: open sources under FR-007/FR-008, open scope under FR-006, and the import step.
+7. **Docs are updated.** The spec changes this brief requires are written into spec 001 and the crawler's own spec before any code merges: open sources under FR-007/FR-008, open scope under FR-006 (new exams added by approval), third-party keys under FR-012, and the import step.
