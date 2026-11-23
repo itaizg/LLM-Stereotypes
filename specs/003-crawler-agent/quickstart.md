@@ -46,7 +46,9 @@ uv run pytest tests/crawler --cov --cov-report=term
 ```
 
 **Expected:** the `crawler` package is listed. CI's combined gate stays at 85% or above
-(FR-036).
+(FR-036). A local run of the whole gate needs `PIPELINE_TEST_DSN`: without it
+the database tests skip and the total drops below 85% (see the comment in
+`pyproject.toml`).
 
 ## 3. Host-slot limiter across processes (FR-010)
 

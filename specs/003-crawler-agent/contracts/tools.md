@@ -19,6 +19,13 @@ through `netsafe` (address and redirect policy) and `slots` (host spacing).
   (≤120 chars) and the terms excerpt (≤300 chars) only (FR-020, research R12).
 - **Idempotency:** the four read tools have no side effects beyond the run's in-memory
   check cache. `write_proposal` is idempotent per (normalised URL, revision).
+- **Budget reservation:** tool calls in one iteration run concurrently, so budgets are
+  reserved, not just checked. Before a call starts, it atomically reserves its
+  worst-case allowance from the run state, under one `asyncio.Lock`: one query for
+  `web_search`, and the worst-case cost (max tokens × price) for a classifier or agent
+  call. A call that cannot reserve is refused as if the budget were spent. After the
+  call, the unused part of the reservation is released. In-flight calls can therefore
+  never push the run past 500 queries or $10 (FR-002).
 
 ## 1. `web_search(query: str, provider: "tavily" | "brave" | None, lang: BCP-47 | None) -> list[SearchHit]`
 
@@ -99,7 +106,14 @@ through `netsafe` (address and redirect policy) and `slots` (host spacing).
 - **Behaviour:**
   1. It assembles labels and checks from run state, and computes `validation_status`,
      `reason`, `reason_class` and `material_fingerprint` (research R4).
-  2. **No prior row:** it writes revision 1.
+  2. **No prior row:** it writes revision 1. For an existing URL it first locks the
+     latest row (`SELECT … FOR UPDATE`), which serialises it against other runs and
+     against `pipeline import-decisions`.
+  2a. **Older observation:** each proposal stores `observed_at`, the database time of
+     the slot reservation for the sample request (research R6). If this observation
+     is older than the latest revision's `observed_at`, it writes nothing, returns the
+     existing ticket and records the note `older_observation`. A slow run therefore
+     cannot supersede newer content with an older sample.
   3. **Same fingerprint as the latest revision:** it writes no proposal or ticket and
      returns the existing ticket (idempotent). Step 5 still runs.
   4. **Different fingerprint** (a material change, FR-021a): it writes revision n+1 and

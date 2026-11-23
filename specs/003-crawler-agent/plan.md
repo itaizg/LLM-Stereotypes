@@ -212,8 +212,10 @@ pipeline/
 ├── __main__.py               # + `import-decisions` command
 ├── manifests.py              # + ledger kinds exam_added, domain_allowlisted, review_reopened; method `crawler`
 ├── acquire.py                # catalog view = catalog.yaml ⊕ ledger additions
-├── schema.sql                # + crawler_* tables; sources.discovery_method adds 'crawler'
-└── store.py                  # + reserve_host_slot()
+├── schema.sql                # + crawler_* tables; sources.discovery_method adds 'crawler'; exam_id key rule
+├── migrations/003_crawler.sql # brings existing stores to schema version 3
+├── acquire.py                # fetch skips crawler sources with a newer, unreviewed revision
+└── store.py                  # + reserve_host_slot(), used by PostgresHostLedger too; versioned apply_schema
 
 tests/
 ├── crawler/

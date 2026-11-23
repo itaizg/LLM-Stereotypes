@@ -107,6 +107,10 @@ testpaths = ["tests"]
 # threshold. It is opt-in rather than in addopts: CI runs the harness, pipeline and dagster
 # tests as separate jobs, and each would fall short on the packages it does not test.
 # CI's "coverage" job combines the three jobs' data and applies the threshold there.
+# Locally, the gate is meaningful only with PIPELINE_TEST_DSN set (a loopback Postgres,
+# e.g. pgserver): without it the database tests skip, the pipeline modules go mostly
+# unmeasured, and the total falls below 85% even though every runnable test passed.
+# Run `PIPELINE_TEST_DSN=... pytest --cov` with all extras installed for a local gate.
 [tool.coverage.run]
 source = ["harness", "pipeline", "orchestration"]
 # CI combines the data of three jobs; relative paths keep it mergeable.

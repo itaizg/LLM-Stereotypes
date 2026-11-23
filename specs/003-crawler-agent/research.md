@@ -29,7 +29,10 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
   (`crawler/config.py` defaults, overridable). Cost is computed from each response's
   reported token usage times those prices, accumulated in the run state, and checked
   **before** each paid call: the call is refused if the worst-case cost (max tokens)
-  would pass $10, or $0.02 for one classifier call.
+  would pass $10, or $0.02 for one classifier call. Because tool calls run
+  concurrently, the worst case is *reserved* from the run state under a lock before
+  the call and the unused part is released after it, so parallel calls cannot overshoot
+  (contracts/tools.md, "Budget reservation").
 - **Rationale:** native tool use and usage reporting make metering exact. Keeping prices
   in config avoids hard-coding numbers that change. The check-before-call rule makes the
   $10 limit hard, not best-effort.
@@ -121,9 +124,13 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
 - **Rationale:** FR-010 asks for spacing across *concurrent* runs and the downloader.
   Today's `PostgresHostLedger` reads once and is safe only under the pipeline write lock,
   which the crawler does not hold (it must not block `pipeline` commands for hours).
-  Reusing the table lets `pipeline fetch` join the same limiter by switching to
-  `reserve_host_slot`. That switch is listed as a follow-up for the downloader feature,
-  and until then the crawler and `pipeline fetch` are not run at the same time.
+  Reusing the table lets `pipeline fetch` join the same limiter: this feature switches
+  `PostgresHostLedger` to call `reserve_host_slot` for every request, so the crawler
+  and the downloader share one limiter from the start (FR-010). A test runs a crawler
+  reservation loop and the downloader's ledger against the same host and checks the
+  5 s spacing across both.
+  The reserved slot time is also returned to the caller and stored as a proposal's
+  `observed_at` (contracts/tools.md, write_proposal step 2a).
 - **Alternatives:**
   - An advisory lock per host: holds a connection while sleeping.
   - Redis: new infrastructure.

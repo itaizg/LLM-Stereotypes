@@ -299,7 +299,8 @@ proposals.
 
 - **FR-023a**: Proposals whose sampled content has the same hash MUST form one content
   group. The group's primary URL MUST be an `official` one when there is one, otherwise
-  the first found. The other URLs MUST be kept as alternates, each with its own labels.
+  the first found. The other URLs MUST be kept as alternates, each with its own labels
+  and its own origin.
 - **FR-024**: Each run MUST generate a review page with one row per content group of
   `passed` proposals. It
   MUST show the labels, check results, evidence links, and the restrictive-terms and
@@ -307,7 +308,8 @@ proposals.
   text.
 - **FR-025**: The maintainer MUST be able to approve or reject each content group on
   the review page, and one decision MUST cover every URL in the group. Each decision MUST record the proposal identifier, the revision shown and
-  the decision. An approval MUST also record the exam and edition it belongs to.
+  the decision. An approval MUST also record the exam and edition it belongs to, and
+  the origin the maintainer confirms for each URL in the group.
 - **FR-026**: An import step MUST read saved decisions and reject any decision made on a
   superseded revision. It MUST record approved proposals as reviewed sources with their
   labels and evidence, record rejected ones as rejected reviewed sources with their

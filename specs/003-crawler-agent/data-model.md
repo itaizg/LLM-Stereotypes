@@ -141,6 +141,7 @@ Defined in [contracts/handoff-ticket.md](contracts/handoff-ticket.md): `input`,
 | `validation_status`, `reason`, `reason_class` | text | |
 | `material_fingerprint` | text | |
 | `review_state` | text | `unreviewed`, `approved`, `rejected`, `stale_superseded` |
+| `observed_at` | timestamptz | database time of the sample request's host-slot reservation; a write older than the latest revision's is ignored |
 | `created_at` | timestamptz | |
 
 ### `crawler_tickets`
@@ -164,10 +165,17 @@ The FR-016a re-check policy.
 
 ### `host_requests` (existing)
 
-No schema change. The table gains `store.reserve_host_slot()` (research R6).
+No schema change. The table gains `store.reserve_host_slot()`, which both the crawler
+and `PostgresHostLedger` (the downloader) use (research R6).
 
 ### Existing tables
 
+These changes reach existing stores through a migration, not only through
+`schema.sql` (see "Schema migration" below).
+
+- **`exams.exam_id`:** the CHECK listing the six keys becomes
+  `exam_id ~ '^[a-z][a-z0-9_]{1,40}$'`, the key rule of the decisions file, so that an
+  approved new exam can be inserted (FR-028).
 - **`sources.discovery_method`:** its CHECK constraint adds `'crawler'`.
 - **`questions` and `answer_keys`:** a `needs_reprocess boolean DEFAULT false` column,
   set by replaying a `review_reopened` event (FR-021b).
@@ -175,20 +183,40 @@ No schema change. The table gains `store.reserve_host_slot()` (research R6).
   is derived from the source's ledger `candidate` event (FR-029). How the dataset card
   counts are reported is spec 001's flattened view.
 
+### Schema migration
+
+`store.apply_schema` today applies `schema.sql` only when `exam_editions` or
+`host_requests` is missing, so an existing store would never get the crawler tables
+or the changed constraints. It gains a `schema_version` table with one row:
+- an empty store gets `schema.sql`, which is the latest schema, and version 3;
+- a store below version 3 gets `pipeline/migrations/003_crawler.sql`, in one
+  transaction: the `crawler_*` tables, `needs_reprocess` columns, and the replaced
+  `exams.exam_id` and `sources.discovery_method` constraints;
+- a store at version 3 is left alone.
+
+A test applies the spec 002 schema, then `apply_schema`, and checks that the result
+matches a fresh `schema.sql` store.
+
 ## Ledger events (`pipeline/manifests.py`)
 
 | Kind | Fields | Written by |
 |---|---|---|
 | `candidate` (existing) | + `method: "crawler"`, `proposal_id`, `revision`, `origin`, `labels_digest`, `evidence: [url…]` | import-decisions |
 | `review` (existing) | unchanged: `source_id`, `decision`, `edition_id`, `role`, `published`, `reason`; + `decision_id` | import-decisions |
-| `exam_added` (new) | `exam_key`, `name`, `language`, `domain`, `decision_id`, `proposal_id`, `revision`, `evidence` | import-decisions (FR-028) |
+| `exam_added` (new) | `exam_key`, `name`, `body`, `language`, `domain`, `decision_id`, `proposal_id`, `revision`, `evidence` | import-decisions (FR-028) |
 | `domain_allowlisted` (new) | `exam_key`, `domain`, `origin`, `decision_id` | import-decisions (FR-026) |
 | `review_reopened` (new) | `source_id`, `proposal_id`, `from_revision`, `to_revision`, `changed: [content|key]` | import-decisions' reopen sweep, which runs on every import and on `--reopen-only` (FR-021b) |
 
 **Dedupe keys** make every repeat import a no-op (FR-026):
 - `exam_added`: `exam_key`;
 - `domain_allowlisted`: (`exam_key`, `domain`);
-- `review_reopened`: (`source_id`, `to_revision`).
+- `review_reopened`: (`source_id`, `to_revision`);
+- `candidate` from the crawler: (`proposal_id`, `revision`).
+
+Every event written by import-decisions carries its `decision_id`. The fold applies a
+decision's `exam_added`, `domain_allowlisted` and `candidate` events only once that
+decision's `review` event is present, so an interrupted import exposes nothing
+(decisions-file.md, "Atomic commit per decision").
 
 ## Relationships
 
