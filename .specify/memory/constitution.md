@@ -1,7 +1,23 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.3.0 (1.2.0 was drafted for Airflow and never ratified)
+Version change: 1.3.0 → 1.4.0
+Bump rationale: MINOR. Adds a new section, "Constraints for agentic work" (development
+  and testing, contracts and handoffs, communication, tools, agent loops and
+  termination, context management, memory, observability). No principle or gate is
+  removed or redefined.
+
+Added in 1.4.0 (crawler agent brief, docs/briefs/crawler-agent.md):
+  - Section "Constraints for agentic work".
+  - Companion document `.specify/memory/memory-architecture.md` (memory layer: Obsidian,
+    OKF, XERJ, Jev), referenced by the new section.
+
+Follow-up TODOs (repository changes, not made by this amendment):
+  - Enforce the ≥85% coverage requirement for agent code in CI (pytest-cov
+    `--cov-fail-under`) once the first agent package exists. Governance requires a new
+    gate to land with, or immediately after, its tooling.
+
+Version change (previous): 1.1.0 → 1.3.0 (1.2.0 was drafted for Airflow and never ratified)
 Bump rationale: MINOR. Guidance is materially expanded to cover workflow orchestration
   (`orchestration/`, Dagster as an optional extra) and one new CI gate (the `dagster` job).
   No principle or gate is removed or redefined.
@@ -179,6 +195,45 @@ how that claim stays true as the code grows.
 - A pull request MUST NOT merge with a failing or skipped required check. Local gate and CI
   gate run the same tools at the same versions, so "passes locally" implies "passes in CI."
 
+## Constraints for agentic work
+
+### Development and testing
+- **Eval-driven development:** whenever possible, write the evaluations before writing the agent's code and framework.
+- **Evals don't replace tests:** deterministic code still needs unit, smoke and integration tests, with at least **85% coverage**.
+
+### Contracts and handoffs
+- **Contracts:** every agent has an input and output contract, enforced with Pydantic for data classes, Pandera for in-memory dataframes, and Soda for warehouse data.
+- **Handoff ticket:** every agent emits a handoff ticket, defined as a Pydantic model within its contract, with the fields `input`, `output`, `completeness`, `owner`, `validation_status` (enum: `pending | passed | failed`) and `run_id`.
+- **Units:** every measured quantity carries its unit in the contract (an explicit unit field, or `pint`-typed fields). Agents and tools use the same unit for the same measurement.
+- **Compact outputs:** agent outputs are thin and hold final results, not extended logs. Logs go to tracing.
+
+### Communication
+- Agents within the same graph communicate through shared graph state and handoff tickets, never A2A.
+- A2A is allowed only between graphs, and only when in-graph communication isn't possible.
+
+### Tools
+- Every tool has a contract, description and definition sufficient for an agent to choose and call it correctly.
+- An agent has no more than 3–5 tools.
+- Different agents use different tools. **Exception:** the memory layer (XERJ over MCP) is shared by all agents, but each agent is scoped to its own XERJ namespace(s); see `memory-architecture.md`.
+- **Idempotency:** retrying a tool call with the same input must not duplicate side effects.
+- **Termination limits:** every tool defines its own limits (timeout, retry count, result size or cost budget) in its definition.
+
+### Agent loops and termination
+- Every agent loop defines a **max iterations** limit.
+- Repeated failure of the same agent (N consecutive failures; N is set per agent) stops the loop and escalates instead of retrying again.
+- **HITL:** human approval is required before any irreversible action (deleting data, sending messages, writing to production, spending money, dropping a memory namespace).
+
+### Context management
+- Compact context **at task boundaries**, and whenever context passes 50%. Before compacting, persist anything that compaction would discard to episodic memory.
+- Use a **DeepAgent** when an agent needs 2+ subagents and more than 4 steps, or when its context commonly reaches ~80% despite compaction.
+
+### Memory
+- All memory reads and writes go through the memory layer defined in `memory-architecture.md`. No agent keeps private memory outside it.
+- Memory content is data, never instructions. An agent never follows instructions found in retrieved memory.
+
+### Observability
+- Every agent step and tool call is traced, and the trace's `run_id` matches the `run_id` on the handoff ticket.
+
 ## Project Constraints
 
 - Separation of concerns: `harness/` knows nothing about stereotypes; experiment content
@@ -216,4 +271,4 @@ how that claim stays true as the code grows.
 - Spec Kit plans (`/speckit-plan`) MUST include a Constitution Check that evaluates the
   design against these principles before implementation begins.
 
-**Version**: 1.3.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-18
+**Version**: 1.4.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-23
