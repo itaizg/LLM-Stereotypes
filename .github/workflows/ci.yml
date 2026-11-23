@@ -201,10 +201,12 @@ jobs:
           pattern: coverage-*
           merge-multiple: true
 
-      # fail_under = 85 comes from [tool.coverage.report] in pyproject.toml.
+      # With no arguments, combine picks up every .coverage.* file downloaded above, so a
+      # new test job only needs its own upload step. fail_under = 85 comes from
+      # [tool.coverage.report] in pyproject.toml.
       - name: Combine and check coverage
         run: |
-          coverage combine .coverage.test .coverage.pipeline .coverage.dagster
+          coverage combine
           coverage report
 
   harness-smoke:

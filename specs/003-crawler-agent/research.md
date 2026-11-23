@@ -80,6 +80,13 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
   - **Iterations:** one iteration is one `agent` node call. The graph's
     `recursion_limit` is set to `2 × 100 + 1`, and an explicit counter ends the run
     cleanly at 100, so the run never hits the `GraphRecursionError` path.
+  - **Parallel tool calls:** one iteration may issue up to 20 tool calls
+    (`max_tool_calls_per_iteration`), which the tools node runs with at most 8 in flight.
+    A URL needs three calls (probe, sample, write), so a task spends about four
+    iterations: search, probe its hits, sample the passing ones, write the proposals.
+    That gives about 25 tasks and at most 2,000 tool calls per run, which is a few
+    hundred distinct URLs. In practice the iteration limit binds before the 500-query
+    limit, and FR-002 stops the run at whichever limit comes first.
   - **Compaction:** a task is one search query and the work on its results. At each task
     boundary, the message list is replaced by a system message plus a compact summary
     (worklist counts, budget left, the last N proposals' ids and statuses).

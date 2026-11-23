@@ -49,6 +49,7 @@ using the same approval prompt and budget rules, then writes
 
 ## `pipeline import-decisions FILE` (new pipeline command)
 
+Also `pipeline import-decisions --reopen-only`, which runs only the reopen sweep.
 Behaviour and exit codes are in [decisions-file.md](decisions-file.md). It holds the
 pipeline write lock, appends ledger events, and then reconciles the store as other
 `pipeline` stages do.

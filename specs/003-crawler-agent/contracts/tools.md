@@ -69,8 +69,9 @@ through `netsafe` (address and redirect policy) and `slots` (host spacing).
   - 30 s timeout;
   - 1 retry;
   - classifier cost of at most $0.02 per call, checked before the call. Over the budget,
-    the classifier is not called and the page type is `other` with confidence 0, so the
-    MCQ check fails with `not_mcq_page_type`.
+    the classifier is not called: the MCQ check is `not_run` and the reason is
+    `not_classified`, a transient reason. A budget shortfall therefore never records a
+    permanent failure, and a later run re-checks the URL (FR-016a).
 - **Signals:** structure, question-mark share, language, site type, page type, topic,
   keyword counts and key status (research R13). The thresholds are in
   `crawler/config.py`.
@@ -99,13 +100,14 @@ through `netsafe` (address and redirect policy) and `slots` (host spacing).
   1. It assembles labels and checks from run state, and computes `validation_status`,
      `reason`, `reason_class` and `material_fingerprint` (research R4).
   2. **No prior row:** it writes revision 1.
-  3. **Same fingerprint as the latest revision:** it writes nothing and returns the
-     existing ticket (idempotent).
+  3. **Same fingerprint as the latest revision:** it writes no proposal or ticket and
+     returns the existing ticket (idempotent). Step 5 still runs.
   4. **Different fingerprint** (a material change, FR-021a): it writes revision n+1 and
      marks revision n `stale_superseded`. If revision n was `approved` and the content
      hash or key status changed, the new row is flagged `reopened_after_approval`
      (FR-021b).
-  5. It upserts `crawler_url_status` from the reason and its class (FR-016a).
+  5. On every call, including the no-op path, it upserts `crawler_url_status` from the
+     reason and its class (FR-016a).
 - **Guard:** the stated exam name and year must appear in the sampled page's title or
   its text tokens. A guessed value is replaced with `null` and the replacement is
   recorded (brief: "never guessed").

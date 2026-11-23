@@ -47,9 +47,25 @@ the model to build the page.
 | Condition | Result |
 |---|---|
 | Any member's `revision` ≠ its current revision | `stale`: nothing written for the whole decision (SC-008) |
-| `reject` | `crawler_proposals.review_state = rejected` for the members; no ledger event |
-| `approve` | Ledger events in order: `exam_added` (if new and not yet added), `domain_allowlisted` (third-party domains not yet allowed), `candidate` (method `crawler`) for each member, `review`; members set to `approved` |
-| Exactly repeated decision | No change (idempotent) |
+| `reject` | Ledger events: `candidate` (method `crawler`) for each member not yet a candidate, then `review` with `decision: rejected` and the reason; members set to `rejected` |
+| `approve` | Ledger events in order: `exam_added` (if new and not yet added), `domain_allowlisted` (third-party domains not yet allowed), `candidate` (method `crawler`) for each member not yet a candidate, `review` with `decision: approved`; members set to `approved` |
+| Exactly repeated decision | No change (idempotent): the members' latest `review` event already has the same decision, edition, role and reason |
+| Changed decision on the same revision | A new `review` event; the latest review decides, as in `pipeline review`, and `review_state` follows it. `exam_added` and `domain_allowlisted` events are not withdrawn: they record catalog facts, not the source's status |
+
+`decision_id` names the group and revisions, not the outcome, so a changed decision
+keeps its id. Idempotency is judged against the latest `review` event, not the id.
+
+## Reopen sweep (FR-021b)
+
+Every run of `pipeline import-decisions` first appends a `review_reopened` event for
+each proposal flagged `reopened_after_approval` whose (`source_id`, `to_revision`) is
+not yet in the ledger. The ledger fold (`pipeline/manifests.py`) treats
+`review_reopened` as resetting the source to `pending` and clearing its approvals, so
+the source leaves the downloader's eligible set until a new decision is imported. (The
+fold today reads any non-`approved` review as a rejection, so a `pending` review event
+would be wrong.) It does this whatever the file
+holds. `pipeline import-decisions --reopen-only` runs the sweep with no file.
+`crawler run` prints how many sources it reopened and that command.
 
 The command prints one line per decision (`decision_id outcome`) and a summary. Exit
 codes follow the pipeline's: 0 ok; 2 usage or validation error; 3 integrity refusal;

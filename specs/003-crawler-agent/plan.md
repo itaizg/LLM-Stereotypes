@@ -95,8 +95,8 @@ Ubuntu CI for tests.
 **Project Type**: a CLI-driven agent package (`python -m crawler`) plus a pipeline CLI
 addition (`pipeline import-decisions`).
 
-**Performance Goals**: a full-budget run (500 queries, at most 100 agent iterations)
-finishes in under 2 hours. The 5 s per-host spacing bounds throughput, not CPU. Requests
+**Performance Goals**: a run that reaches its first limit (normally 100 agent
+iterations, each with up to 20 parallel tool calls) finishes in under 2 hours. The 5 s per-host spacing bounds throughput, not CPU. Requests
 to different hosts run concurrently, with at most 8 in flight.
 
 **Constraints**:
@@ -108,8 +108,10 @@ to different hosts run concurrently, with at most 8 in flight.
 - **Context:** compacted at task boundaries or above 50% (constitution).
 
 **Scale/Scope**:
-- **Per run:** about 500 queries × at most 20 results, which is ≤10,000 raw hits. Before
-  probing, they are deduplicated to an expected 1,000–3,000 distinct URLs.
+- **Per run:** at most 100 iterations × 20 tool calls = 2,000 tool calls. At about
+  three calls per URL (probe, sample, write), that is a few hundred distinct URLs, from
+  tens of queries. The iteration limit normally binds before the 500-query limit
+  (research R5).
 - **Review:** tens to low hundreds of `passed` groups per run.
 - **Language:** a lexicon for at least the six exams' languages (en, he, ko, zh, ja, pt).
 
@@ -124,7 +126,7 @@ to different hosts run concurrently, with at most 8 in flight.
 | III. Tests, GPU-free, no network | Pass | All tests inject a transport, resolver, clock, chat model, classifier and memory. Replay fixtures are synthetic. Postgres is loopback only. Every behaviour change in `pipeline/` (import-decisions, the slot reservation, the ledger kinds) ships with a failing-first test. |
 | IV. KISS / YAGNI / DRY | Pass | One agent node with no subagents, so no DeepAgent. Search goes over `httpx`, not two SDKs. No template engine and no web server: the review page is static. The decisions-file schema is defined once, in `pipeline/decisions.py`, and the crawler imports it. Thresholds are defined once, in `crawler/config.py`. |
 | V. Structure | Pass | Dependencies run one way: `crawler → pipeline`. `pipeline/` and `harness/` never import `crawler/`, which a guard test enforces (as `tests/pipeline/test_guard.py` does today). Each tool module has one responsibility. Fakes stand in for the real implementations (Liskov). |
-| Quality gates | **Pass, with amendment** | A new CI job, `crawler`, runs pytest on `tests/crawler`, with ty covered by the pre-commit ty hook (which installs the `crawler` extra). Its coverage file `.coverage.crawler` joins the `coverage gate` combine. `[tool.coverage.run] source` adds `crawler`. **The Quality Gates section must name the job** (amendment 1.5.0). |
+| Quality gates | **Pass, with amendment** | A new CI job, `crawler`, runs pytest on `tests/crawler`, with ty covered by the pre-commit ty hook (which installs the `crawler` extra). Its coverage file `.coverage.crawler` is picked up by the `coverage gate` combine, which reads every downloaded `.coverage.*` file. `[tool.coverage.run] source` adds `crawler`. **The Quality Gates section must name the job** (amendment 1.5.0). |
 | Dependencies | **Pass, with amendment** | The new optional `crawler` extra is never pulled by the core, `model`, `pipeline` or `orchestration` installs. **Project Constraints → Dependencies must name it** (amendment 1.5.0). The heavyweight-framework ban was already lifted in 1.1.0. |
 | Secrets | Pass | `TAVILY_API_KEY`, `BRAVE_API_KEY`, `ANTHROPIC_API_KEY` and `XERJ_TOKEN` come from env only. They are redacted from traces and errors, using `store.redact` as the pattern. |
 | Eval-driven development | Pass | Task order: the replay eval harness and labelled sets come first, then the tools, then the graph (FR-035). |
@@ -224,7 +226,7 @@ tests/
 └── pipeline/
     └── test_decisions.py     # import-decisions: stale revision, idempotency, new exam, allowlist
 
-.github/workflows/ci.yml      # + `crawler` job; coverage gate combines 4 files
+.github/workflows/ci.yml      # + `crawler` job (uploads `.coverage.crawler`)
 pyproject.toml                # + crawler extra; coverage source + "crawler"; packages include crawler*
 .specify/memory/constitution.md  # 1.5.0 amendment (paths, CI job, extra)
 specs/001-exam-data-aggregation/spec.md  # FR-006, FR-007/008, FR-012 amendments (FR-034)

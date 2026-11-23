@@ -192,7 +192,7 @@ proposals.
   configuration whose budget the maintainer approves at that time. The approval MUST be
   recorded with the run identifier. Scheduled or unattended runs are out of scope.
 - **FR-002**: A run MUST stop at the first limit reached: 500 search queries, $10 of
-  classifier spend, or 100 agent iterations. It MUST report which limit it hit and its
+  LLM spend (the agent model and the classifier together), or 100 agent iterations. It MUST report which limit it hit and its
   completeness, and MUST NOT retry automatically.
 - **FR-003**: Five consecutive failures of the same tool MUST stop the run and escalate
   to the maintainer.
@@ -282,7 +282,7 @@ proposals.
   normalised URL and revision. A retry MUST return the existing ticket, and no partial
   write may leave a proposal without its ticket.
 - **FR-021a**: A proposal MUST get a new revision only on a material change: a change in
-  the sampled content's hash, its validation status, its key status, or any label value.
+  the sampled content's hash, its validation status, its failure reason, its key status, or any label value.
   A change in classifier confidence alone MUST NOT create a revision.
 - **FR-021b**: When a new revision of an already-approved source changes its sampled
   content or its key status, the source MUST go back to review. Every question and key
@@ -310,8 +310,11 @@ proposals.
   the decision. An approval MUST also record the exam and edition it belongs to.
 - **FR-026**: An import step MUST read saved decisions and reject any decision made on a
   superseded revision. It MUST record approved proposals as reviewed sources with their
-  labels and evidence, and add approved third-party domains to that exam's allowlist.
-  Importing the same decisions twice MUST change nothing.
+  labels and evidence, record rejected ones as rejected reviewed sources with their
+  reason, and add approved third-party domains to that exam's allowlist. Every
+  decision MUST be recorded in the committed ledger. A later decision on the same group
+  and revision MUST supersede the earlier one. Importing the same decisions twice MUST
+  change nothing.
 - **FR-027**: Only proposals approved through the import step MUST be eligible for the
   downloader. A `passed` validation status alone MUST NOT make a source eligible.
 - **FR-028**: Approving a source for an exam not yet in the catalog MUST add that exam

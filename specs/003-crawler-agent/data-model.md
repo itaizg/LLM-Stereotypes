@@ -20,7 +20,7 @@ All thresholds live in `crawler/config.py`.
 | `CheckResult` | `passed`, `failed`, `not_run` |
 | `ValidationStatus` | `pending`, `passed`, `failed` (constitution ticket enum) |
 | `ReasonCode` (permanent) | `blocked`, `login_wall`, `paywall`, `captcha`, `non_public_address`, `bad_scheme`, `too_many_redirects`, `http_4xx`, `type_mismatch`, `script_only`, `not_mcq_structure`, `not_mcq_page_type`, `no_instruction_phrase`, `not_probed` |
-| `ReasonCode` (transient) | `timeout`, `http_5xx`, `connection_error`, `too_large_unsampled` |
+| `ReasonCode` (transient) | `timeout`, `http_5xx`, `connection_error`, `too_large_unsampled`, `not_classified` (classifier skipped for cost) |
 | `Flag` | `lexicon_missing`, `restrictive_terms`, `memory_unavailable`, `reopened_after_approval` |
 | `RunStatus` | `running`, `completed`, `stopped_at_limit`, `escalated`, `failed` |
 | `StopLimit` | `queries`, `cost`, `iterations` |
@@ -38,7 +38,7 @@ the unit.
 
 - **`run_id`**: `cr_<UTC yyyymmddThhmmss>_<4 hex>`.
 - **`budget`**: `max_queries = 500`, `max_cost_usd = 10.0`, `max_iterations = 100`,
-  `max_consecutive_failures = 5`.
+  `max_consecutive_failures = 5`, `max_tool_calls_per_iteration = 20`.
 - **`host_interval_s`**: 5.0. **`concurrency`**: 8.
 - **`primary_provider`**: `tavily` or `brave`.
 - **`agent_model`** and **`classifier_model`**: ids, plus `price_in_usd_per_mtok` and
@@ -86,7 +86,9 @@ Field lists are in [contracts/tools.md](contracts/tools.md). In brief:
 - **Outcome:** `validation_status`, `reason | None`, `reason_class: transient |
   permanent | None`.
 - **Fingerprint:** `material_fingerprint`, the SHA-256 of `(content_hash,
-  validation_status, key_status, labels without confidences)`.
+  validation_status, reason, reason_class, key_status, labels without confidences)`.
+  The reason is included so that a change such as `timeout` → `blocked` writes a new
+  revision rather than keeping the old reason.
 
 **Validation rules:**
 - `validation_status = passed` ⇔ `reachable`, `downloadable` and `mcq` all passed
@@ -181,7 +183,7 @@ No schema change. The table gains `store.reserve_host_slot()` (research R6).
 | `review` (existing) | unchanged: `source_id`, `decision`, `edition_id`, `role`, `published`, `reason`; + `decision_id` | import-decisions |
 | `exam_added` (new) | `exam_key`, `name`, `language`, `domain`, `decision_id`, `proposal_id`, `revision`, `evidence` | import-decisions (FR-028) |
 | `domain_allowlisted` (new) | `exam_key`, `domain`, `origin`, `decision_id` | import-decisions (FR-026) |
-| `review_reopened` (new) | `source_id`, `proposal_id`, `from_revision`, `to_revision`, `changed: [content|key]` | import-decisions (FR-021b) |
+| `review_reopened` (new) | `source_id`, `proposal_id`, `from_revision`, `to_revision`, `changed: [content|key]` | import-decisions' reopen sweep, which runs on every import and on `--reopen-only` (FR-021b) |
 
 **Dedupe keys** make every repeat import a no-op (FR-026):
 - `exam_added`: `exam_key`;
@@ -204,10 +206,13 @@ crawler_proposals.normalised_url 1 ── 1 crawler_url_status
 ```text
 unreviewed ──approve (current revision)──> approved
 unreviewed ──reject──> rejected
+approved ⇄ rejected ──later decision on the same revision──> follows the latest review event
 unreviewed ──decision on old revision──> (decision rejected as stale; state unchanged)
 any ──new material revision written──> previous row: stale_superseded; new row: unreviewed
 approved ──new revision changes content_hash or key_status──> new row unreviewed
-         + flag reopened_after_approval; import appends review_reopened (FR-021b)
+         + flag reopened_after_approval; the next import's reopen sweep appends
+         review_reopened; the ledger fold resets the source to pending and clears its
+         approvals, so it is no longer eligible (FR-021b)
 ```
 
 **Run `status`:**
