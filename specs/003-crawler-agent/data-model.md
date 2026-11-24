@@ -182,7 +182,8 @@ These changes reach existing stores through a migration, not only through
   the event's domain plus its `domain_allowlisted` domains; `publishes_keys = true`,
   with the approving decision and proposal as `keys_evidence`; the default rate limit;
   no seeds or parse config, so extraction skips it until the maintainer adds a
-  `catalog.yaml` entry, which then takes precedence).
+  `catalog.yaml` entry, which then takes precedence). Such an `Exam` carries
+  `added_by` (the decision id); a catalog entry has `added_by = None`.
 - **`sources.discovery_method`:** its CHECK constraint adds `'crawler'`.
 - **`questions` and `answer_keys`:** a `needs_reprocess boolean DEFAULT false` column,
   set by replaying a `review_reopened` event (FR-021b).

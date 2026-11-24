@@ -811,3 +811,54 @@ class TestConditionalRefresh:
         assert summary.seeds_fetched == 1
         found = {s.url for s in sources(dataset).values()}
         assert f"https://{HOST}/tests/2020.pdf" in found
+
+
+class TestSuspendedCrawlerSources:
+    """Spec 003 FR-021b: a changed crawler source is not fetched until re-reviewed."""
+
+    def test_a_suspended_source_is_skipped_and_counted(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        source = dataset.add_source(f"https://{HOST}/crawled.pdf", SAT, "paper")
+        web.add(
+            f"https://{HOST}/crawled.pdf",
+            b"%PDF c",
+            headers={"content-type": "application/pdf"},
+        )
+        dataset.save()
+
+        async def go() -> FetchSummary:
+            async with web.client() as client:
+                return await fetch(
+                    load_catalog(dataset.catalog_path),
+                    dataset.ledger_path,
+                    blob_store,
+                    client,
+                    clock,
+                    at=dataset.at(),
+                    exam="sat",
+                    suspended=frozenset({source}),
+                )
+
+        summary = asyncio.run(go())
+        assert (summary.skipped_reopened, summary.fetched) == (1, 0)
+        assert f"https://{HOST}/crawled.pdf" not in web.urls()
+
+    def test_a_passed_but_unapproved_proposal_is_never_offered(
+        self,
+        dataset: DatasetBuilder,
+        web: Web,
+        blob_store: LocalBlobStore,
+        clock: FakeClock,
+    ) -> None:
+        """FR-027: only an imported approval makes a crawler source fetchable."""
+        url = f"https://{HOST}/crawled-unapproved.pdf"
+        dataset.add_source(url, SAT, "paper", method="crawler", approve=False)
+        web.add(url, b"%PDF u", headers={"content-type": "application/pdf"})
+        dataset.save()
+        run_fetch(dataset, web, blob_store, clock)
+        assert url not in web.urls()

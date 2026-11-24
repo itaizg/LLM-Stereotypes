@@ -207,8 +207,10 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
   FR-016a's re-check policy lives in Postgres (`crawler_url_status`), not in memory,
   because it is a correctness rule.
 - **Rationale:** the constitution routes all memory through the memory layer, and the
-  brief fixes the code-managed mode. XERJ is not installed on this machine, so the
-  endpoint paths are confirmed in the task that adds the adapter. The Protocol keeps the
+  brief fixes the code-managed mode. XERJ is not installed on this machine, and the
+  adapter (`crawler/memory.py`, `XerjMemory`) uses an *assumed* endpoint shape
+  (`POST`/`GET {XERJ_URL}/v1/memory/_memory/agent-crawler/entries`). It is still
+  unconfirmed and must be checked against a running XERJ before the first live run. The Protocol keeps the
   rest of the design independent of them.
 - **Alternatives:** a local JSON file (private memory, forbidden); a memory tool (needs a
   sixth tool, and the brief says not to).

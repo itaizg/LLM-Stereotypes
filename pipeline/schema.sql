@@ -7,16 +7,29 @@
 -- can reconcile them all in one transaction, in any order.
 --
 -- Everything is idempotent (IF NOT EXISTS / OR REPLACE) so applying it twice
--- changes nothing. There are no migrations: the store is rebuildable from the
--- catalog, the ledger, and the blobs (FR-020), so a schema change is a rebuild.
+-- changes nothing. Dataset tables are rebuildable from the catalog, the ledger and
+-- the blobs (FR-020). Operational tables (host_requests, crawler_*) are not, so a
+-- store made by an older schema is brought up to date by a migration in
+-- pipeline/migrations/ (store.apply_schema), and this file is always the latest
+-- schema, recorded in schema_version.
+
+-- ---------------------------------------------------------------------------
+-- schema_version: the schema this store is at (one row; spec 003)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS schema_version (
+    id      boolean PRIMARY KEY DEFAULT true CHECK (id),
+    version integer NOT NULL
+);
 
 -- ---------------------------------------------------------------------------
 -- exams: the registry of the six exams in scope (FR-001)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS exams (
+    -- The six catalog exams, plus exams added by an approved crawler decision
+    -- (spec 003 FR-028); the key rule is the decisions file's.
     exam_id        text PRIMARY KEY
-                   CHECK (exam_id IN ('sat', 'psychometric', 'csat', 'gaokao',
-                                      'common_test', 'enem')),
+                   CONSTRAINT exams_exam_id_check
+                   CHECK (exam_id ~ '^[a-z][a-z0-9_]{1,40}$'),
     name           text NOT NULL,
     body           text NOT NULL,
     language       text NOT NULL,
@@ -61,7 +74,9 @@ CREATE TABLE IF NOT EXISTS sources (
     source_id        text PRIMARY KEY,
     url              text NOT NULL UNIQUE,
     domain           text NOT NULL,
-    discovery_method text NOT NULL CHECK (discovery_method IN ('index_crawl', 'manual')),
+    discovery_method text NOT NULL
+                     CONSTRAINT sources_discovery_method_check
+                     CHECK (discovery_method IN ('index_crawl', 'manual', 'crawler')),
     found_on         text,
     edition_id       text REFERENCES exam_editions (edition_id)
                      DEFERRABLE INITIALLY DEFERRED,
@@ -133,7 +148,9 @@ CREATE TABLE IF NOT EXISTS questions (
     page                  integer NOT NULL,
     pipeline_version      text NOT NULL,
     content_hash          text NOT NULL,
-    retired               boolean NOT NULL DEFAULT false
+    retired               boolean NOT NULL DEFAULT false,
+    -- Set when the source it came from was reopened after approval (spec 003 FR-021b).
+    needs_reprocess       boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS questions_edition_idx ON questions (edition_id, print_order);
 CREATE INDEX IF NOT EXISTS questions_canonical_idx ON questions (canonical_question_id);
@@ -150,6 +167,7 @@ CREATE TABLE IF NOT EXISTS answer_keys (
     is_erratum       boolean NOT NULL,
     published        date,
     pipeline_version text NOT NULL,
+    needs_reprocess  boolean NOT NULL DEFAULT false,
     UNIQUE (question_id, labels, artifact_sha256)
 );
 
@@ -241,6 +259,80 @@ CREATE TABLE IF NOT EXISTS host_requests (
     host            text PRIMARY KEY,
     last_request_at timestamptz NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- crawler_*: the crawler agent's operational state (spec 003, data-model.md).
+-- Not dataset content: `pipeline rebuild` does not rebuild it, and no snapshot
+-- carries it. Proposals hold counts, hashes, URLs and labels, never question text.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS crawler_runs (
+    run_id            text PRIMARY KEY,
+    config            jsonb NOT NULL,
+    approved_by       text NOT NULL,
+    approved_at       timestamptz NOT NULL,
+    status            text NOT NULL
+                      CHECK (status IN ('running', 'completed', 'stopped_at_limit',
+                                        'escalated', 'failed')),
+    stop_limit        text CHECK (stop_limit IN ('queries', 'cost', 'iterations')),
+    queries_used      integer NOT NULL DEFAULT 0,
+    iterations_used   integer NOT NULL DEFAULT 0,
+    cost_usd          numeric(8, 4) NOT NULL DEFAULT 0,
+    completeness      numeric(4, 3) NOT NULL DEFAULT 0,
+    memory_available  boolean NOT NULL DEFAULT false,
+    provider_switches jsonb NOT NULL DEFAULT '[]'::jsonb,
+    started_at        timestamptz NOT NULL,
+    ended_at          timestamptz,
+    CHECK (status <> 'stopped_at_limit' OR stop_limit IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS crawler_proposals (
+    proposal_id          text NOT NULL,
+    revision             integer NOT NULL CHECK (revision >= 1),
+    normalised_url       text NOT NULL,
+    url                  text NOT NULL,
+    domain               text NOT NULL,
+    run_id               text NOT NULL REFERENCES crawler_runs (run_id),
+    content_hash         text,
+    labels               jsonb NOT NULL,
+    checks               jsonb NOT NULL,
+    validation_status    text NOT NULL CHECK (validation_status IN ('passed', 'failed')),
+    reason               text,
+    reason_class         text CHECK (reason_class IN ('transient', 'permanent')),
+    material_fingerprint text NOT NULL,
+    review_state         text NOT NULL DEFAULT 'unreviewed'
+                         CHECK (review_state IN ('unreviewed', 'approved', 'rejected',
+                                                 'stale_superseded')),
+    observed_at          timestamptz NOT NULL,
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (proposal_id, revision),
+    UNIQUE (normalised_url, revision),
+    CHECK ((validation_status = 'failed') = (reason IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS crawler_proposals_content_idx
+    ON crawler_proposals (content_hash);
+CREATE INDEX IF NOT EXISTS crawler_proposals_run_idx ON crawler_proposals (run_id);
+
+CREATE TABLE IF NOT EXISTS crawler_tickets (
+    proposal_id text NOT NULL,
+    revision    integer NOT NULL,
+    ticket      jsonb NOT NULL,
+    run_id      text NOT NULL,
+    PRIMARY KEY (proposal_id, revision),
+    FOREIGN KEY (proposal_id, revision)
+        REFERENCES crawler_proposals (proposal_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS crawler_url_status (
+    normalised_url     text PRIMARY KEY,
+    last_reason        text,
+    last_reason_class  text CHECK (last_reason_class IN ('transient', 'permanent')),
+    transient_attempts integer NOT NULL DEFAULT 0 CHECK (transient_attempts >= 0),
+    last_checked_at    timestamptz NOT NULL,
+    last_size_bytes    bigint,
+    last_etag          text
+);
+
+INSERT INTO schema_version (id, version) VALUES (true, 3) ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- questions_flat: one row per live question with its current key and preferred

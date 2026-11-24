@@ -47,6 +47,12 @@ A manual live eval (FR-035). It runs the probe and sample tools over the labelle
 using the same approval prompt and budget rules, then writes
 `results/crawler/evals/<run_id>.json` with precision and recall (SC-001, SC-002).
 
+## `pipeline origins` (new pipeline command)
+
+Read-only. Prints, per exam, the official and third-party question and key counts
+(FR-029), one line per exam and origin. The spec 001 dataset card reads the same
+numbers (`pipeline.decisions.origin_counts`).
+
 ## `pipeline import-decisions FILE` (new pipeline command)
 
 Also `pipeline import-decisions --reopen-only`, which runs only the reopen sweep.

@@ -40,6 +40,8 @@ pipeline = [
     "pdfplumber>=0.11",
     "pytesseract>=0.3.13",
     "openai>=1.50",
+    # The decisions-file contract (pipeline/decisions.py, spec 003).
+    "pydantic>=2.9,<3",
 ]
 
 # Dagster orchestration (specs/002-airflow-orchestration, amendment A3). Optional and
@@ -51,11 +53,22 @@ orchestration = [
     "dagster-postgres==0.29.30",
 ]
 
+# The crawler agent (specs/003-crawler-agent). Optional; it reuses the pipeline extra
+# (httpx, psycopg, beautifulsoup4, pdfplumber) and is never imported by harness/ or
+# pipeline/ (enforced by tests/crawler/test_guard.py).
+crawler = [
+    "langgraph>=1.0,<2",
+    "langchain-anthropic>=1.0,<2",
+    "pydantic>=2.9,<3",
+    "lingua-language-detector>=2.1,<3",
+    "opentelemetry-sdk>=1.30,<2",
+]
+
 [project.scripts]
 pipeline = "pipeline.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["harness*", "pipeline*", "legacy*"]
+include = ["harness*", "pipeline*", "crawler*", "legacy*"]
 
 [tool.ruff]
 line-length = 88
@@ -112,8 +125,8 @@ testpaths = ["tests"]
 # unmeasured, and the total falls below 85% even though every runnable test passed.
 # Run `PIPELINE_TEST_DSN=... pytest --cov` with all extras installed for a local gate.
 [tool.coverage.run]
-source = ["harness", "pipeline", "orchestration"]
-# CI combines the data of three jobs; relative paths keep it mergeable.
+source = ["harness", "pipeline", "orchestration", "crawler"]
+# CI combines the data of the test jobs; relative paths keep it mergeable.
 relative_files = true
 # iCloud Drive leaves "name 2.py" conflict copies in the working tree; they are never
 # tracked and must not count.

@@ -75,8 +75,7 @@ class TestSpacingAcrossInvocations:
                     client,
                     clock,
                     lambda _host: INTERVAL,
-                    PostgresHostLedger(db),
-                    lambda: self.wall(clock),
+                    PostgresHostLedger(db, lambda: self.wall(clock)),
                 )
                 return await fetcher.get(url, ALLOWED)
 
@@ -152,17 +151,15 @@ class TestSpacingAcrossInvocations:
 
 
 class SpyLedger:
-    """A ledger that notes how many requests had been sent at each ``record``."""
+    """A ledger that notes how many requests had been sent at each ``reserve``."""
 
     def __init__(self, web: Web) -> None:
         self._web = web
-        self.sent_at_record: list[int] = []
+        self.sent_at_reserve: list[int] = []
 
-    def last(self, host: str) -> float | None:
-        return None
-
-    def record(self, host: str, at: float) -> None:
-        self.sent_at_record.append(len(self._web.calls))
+    def reserve(self, host: str, interval_s: float) -> float:
+        self.sent_at_reserve.append(len(self._web.calls))
+        return 0.0
 
 
 class TestReservation:
@@ -178,9 +175,8 @@ class TestReservation:
                 return await fetcher.get(URL, ALLOWED)
 
         asyncio.run(go())
-        # Two requests (robots.txt, then the page). Each is preceded by a record made
-        # while it is unsent, and followed by one made once it has been sent.
-        assert ledger.sent_at_record == [0, 1, 1, 2]
+        # Two requests (robots.txt, then the page), each reserved while still unsent.
+        assert ledger.sent_at_reserve == [0, 1]
 
 
 class TestBackoff:

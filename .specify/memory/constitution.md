@@ -1,7 +1,24 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.3.0 → 1.4.0
+Version change: 1.4.0 → 1.5.0
+Bump rationale: MINOR. Materially expands guidance to cover a new optional agent
+  package, `crawler/` (spec 003-crawler-agent), and adds one CI gate (the `crawler`
+  job). No principle or gate is removed or redefined.
+
+Modified in 1.5.0:
+  - Principle I: path list now includes `crawler/`.
+  - Quality Gates: CI runs the `crawler` job (pytest on `tests/crawler` against loopback
+    Postgres, with coverage). The pre-commit ty hook includes the `crawler` extra.
+  - Project Constraints → Dependencies: the agent runtime (LangGraph, the Anthropic chat
+    client, language detection, OpenTelemetry) is the optional `crawler` extra.
+    `harness/` and `pipeline/` never import `crawler/`.
+
+Tooling landed with this amendment (same change as the package skeleton):
+  - `crawler` job in `.github/workflows/ci.yml`, uploading `.coverage.crawler`.
+  - `crawler` in `[tool.coverage.run] source`; `--extra crawler` in the ty hook.
+
+Version change (previous): 1.3.0 → 1.4.0
 Bump rationale: MINOR. Adds a new section, "Constraints for agentic work" (development
   and testing, contracts and handoffs, communication, tools, agent loops and
   termination, context management, memory, observability). No principle or gate is
@@ -92,7 +109,7 @@ Follow-up TODOs (repository changes, not made by this amendment):
 ### I. Typed Code, Checked by ty
 
 - Every function, method, and module-level variable in `harness/`, `pipeline/`,
-  `orchestration/`, `data/`, and `tests/` MUST carry type annotations, including return
+  `orchestration/`, `crawler/`, `data/`, and `tests/` MUST carry type annotations, including return
   types (`-> None` included).
 - `ty check` MUST pass with zero errors on every commit to `main`, including
   `orchestration/`, which is checked in the project environment with the `orchestration`
@@ -193,6 +210,9 @@ how that claim stays true as the code grows.
   `dagster definitions validate`, the compose file check and the image build. The
   pre-commit ty hook installs the `orchestration` extra, so the local gate equals the CI
   gate and needs no Docker.
+- CI MUST run the `crawler` job: pytest on `tests/crawler` against a loopback Postgres
+  service, with coverage. The pre-commit ty hook installs the `crawler` extra, so ty
+  checks `crawler/` locally and in CI alike.
 - CI jobs MUST use least-privilege permissions (`contents: read` unless a job needs more),
   pinned action versions, and no secrets.
 - A pull request MUST NOT merge with a failing or skipped required check. Local gate and CI
@@ -255,7 +275,10 @@ how that claim stays true as the code grows.
   dataset-pipeline packages stay in the optional `pipeline` extra; the core install stays
   GPU-free. Workflow orchestration (Dagster) is the optional `orchestration` extra, used
   only by `orchestration/`, which runs the pipeline as a subprocess. `harness/` and
-  `pipeline/` never import it, and no other install pulls it.
+  `pipeline/` never import it, and no other install pulls it. The crawler agent's
+  runtime (LangGraph, the Anthropic chat client, language detection, OpenTelemetry) is
+  the optional `crawler` extra, used only by `crawler/`, which may import `pipeline/`;
+  `harness/` and `pipeline/` never import `crawler/`.
 - Device handling: detect MPS → CUDA → CPU at runtime; never hardcode a device. Record
   device and backend in every run manifest.
 - Secrets: environment variables only; never committed, never printed or logged.
@@ -278,4 +301,4 @@ how that claim stays true as the code grows.
 - Spec Kit plans (`/speckit-plan`) MUST include a Constitution Check that evaluates the
   design against these principles before implementation begins.
 
-**Version**: 1.4.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-23
+**Version**: 1.5.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-23

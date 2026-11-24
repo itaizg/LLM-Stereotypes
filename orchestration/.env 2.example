@@ -1,0 +1,21 @@
+# Copy to orchestration/.env (gitignored) and fill in. Nothing here is committed with
+# a real value. Passwords go into connection URLs unescaped, so use only letters, digits,
+# '-', '.', '_' and '~' (compose cannot percent-encode).
+
+# Your Mac user id: run `id -u`. Files the containers write to the repository (the ledger,
+# the blob store) then belong to you. Empty means 1000.
+DAGSTER_UID=
+
+DAGSTER_DB_PASSWORD=change-me
+PIPELINE_DB_PASSWORD=change-me
+
+# The host port compose publishes Postgres on, for `orchestration/dev.sh` on the Mac.
+# Empty means 5432; set another (say 55432) if something else already holds it.
+PIPELINE_PG_PORT=
+
+# The Postgres superuser, used only to create the two databases on first start. Neither
+# Dagster nor the pipeline connects with it.
+POSTGRES_ADMIN_PASSWORD=change-me
+
+# Only once the translate stage exists:
+# ANTHROPIC_API_KEY=

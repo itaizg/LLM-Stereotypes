@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import LiteralString, cast
 
@@ -27,6 +28,15 @@ from psycopg import sql
 from psycopg.types.json import Jsonb
 
 SCHEMA_SQL = Path(__file__).parent / "schema.sql"
+MIGRATIONS = Path(__file__).parent / "migrations"
+
+# The version ``schema.sql`` creates, and the migration bringing an older store to it.
+SCHEMA_VERSION = 3
+_MIGRATION = MIGRATIONS / "003_crawler.sql"
+
+# A stored request time more than this far ahead of now is clock skew, not a pending
+# reservation, and counts as now (a reservation is at most a few intervals ahead).
+MAX_SLOT_AHEAD_S = 600.0
 
 # One fixed advisory-lock key for the whole pipeline (research R16).
 _LOCK_KEY = 0x706970656C696E65  # "pipeline" in ASCII; fits a signed bigint
@@ -62,20 +72,34 @@ def connect(dsn: str, *, autocommit: bool = True) -> psycopg.Connection:
         raise ConnectionFailed(redact(str(error), dsn)) from None
 
 
-def apply_schema(conn: psycopg.Connection) -> bool:
-    """Apply ``schema.sql`` if a table is missing; return True if applied.
+def schema_version(conn: psycopg.Connection) -> int:
+    """The store's schema version: 0 when it predates ``schema_version``."""
+    row = conn.execute("SELECT to_regclass('schema_version')").fetchone()
+    if row is None or row[0] is None:
+        return 0
+    found = conn.execute("SELECT version FROM schema_version").fetchone()
+    return int(found[0]) if found is not None else 0
 
-    Checking ``host_requests`` as well as ``exam_editions`` brings a database made
-    before that table existed up to date. Applying is safe: the file is idempotent.
+
+def apply_schema(conn: psycopg.Connection) -> bool:
+    """Bring the store to ``SCHEMA_VERSION``; return True if anything was applied.
+
+    An empty store gets ``schema.sql``, which is the latest schema. An older store
+    (spec 001/002, no ``schema_version`` row) gets ``schema.sql`` for its missing
+    tables and then the migration for what that file cannot change in place (new
+    columns, replaced constraints), both in one transaction, so a failure leaves the
+    store as it was. A current store is left alone.
     """
-    row = conn.execute(
-        "SELECT to_regclass('exam_editions'), to_regclass('host_requests')"
-    ).fetchone()
-    if row is not None and row[0] is not None and row[1] is not None:
+    if schema_version(conn) >= SCHEMA_VERSION:
         return False
-    # The DDL is our own committed schema.sql, never user input; psycopg's typing
-    # asks for a literal string to keep injectable text out of execute().
-    conn.execute(cast("LiteralString", SCHEMA_SQL.read_text(encoding="utf-8")))
+    row = conn.execute("SELECT to_regclass('exam_editions')").fetchone()
+    is_empty = row is None or row[0] is None
+    with conn.transaction():
+        # The DDL is our own committed SQL, never user input; psycopg's typing asks
+        # for a literal string to keep injectable text out of execute().
+        conn.execute(cast("LiteralString", SCHEMA_SQL.read_text(encoding="utf-8")))
+        if not is_empty:
+            conn.execute(cast("LiteralString", _MIGRATION.read_text(encoding="utf-8")))
     return True
 
 
@@ -361,20 +385,65 @@ def record_host_request(conn: psycopg.Connection, host: str, at_epoch: float) ->
     )
 
 
-class PostgresHostLedger:
-    """``web.HostLedger`` over Postgres: read once at start, written after each request.
+def reserve_host_slot(
+    conn: psycopg.Connection,
+    host: str,
+    interval_s: float,
+    *,
+    at_epoch: float | None = None,
+) -> tuple[float, datetime]:
+    """Atomically reserve the next request slot for ``host``; return (wait_s, slot).
 
-    It runs only inside commands that hold the write lock, so no other process
-    changes the table while it is held and the one read stays accurate.
+    One statement (spec 003 research R6): the slot is the later of now and the
+    host's previous slot plus ``interval_s``, and it is stored before anyone sends,
+    so concurrent processes (crawler runs, the downloader) queue behind each other
+    instead of reading the same old time. Postgres serialises the upsert on the
+    host's row. "Now" is the database clock unless ``at_epoch`` is given (tests and
+    callers with an injected wall clock). A stored time more than
+    ``MAX_SLOT_AHEAD_S`` ahead is clock skew and counts as now.
+    """
+    row = conn.execute(
+        "WITH now_ AS (SELECT COALESCE(to_timestamp(%(at)s::float8), "
+        "clock_timestamp()) AS t) "
+        "INSERT INTO host_requests AS h (host, last_request_at) "
+        "SELECT %(host)s, t FROM now_ "
+        "ON CONFLICT (host) DO UPDATE SET last_request_at = GREATEST("
+        "(SELECT t FROM now_), "
+        "CASE WHEN h.last_request_at > (SELECT t FROM now_) "
+        "+ make_interval(secs => %(ahead)s) "
+        "THEN (SELECT t FROM now_) ELSE h.last_request_at END "
+        "+ make_interval(secs => %(interval)s)) "
+        "RETURNING last_request_at, "
+        "extract(epoch FROM last_request_at - (SELECT t FROM now_))::float8",
+        {
+            "at": at_epoch,
+            "host": host,
+            "ahead": MAX_SLOT_AHEAD_S,
+            "interval": interval_s,
+        },
+    ).fetchone()
+    if row is None:  # pragma: no cover - INSERT ... RETURNING always returns a row
+        raise RuntimeError("host slot reservation returned no row")
+    slot, wait = row
+    return max(0.0, float(wait)), slot
+
+
+class PostgresHostLedger:
+    """``web.HostLedger`` over Postgres: every request reserves its slot atomically.
+
+    Reserving (rather than reading the table once and writing after each request)
+    keeps the spacing correct when other processes use the same host at the same
+    time, such as a crawler run beside ``pipeline fetch`` (spec 003 FR-010). ``wall``
+    stands in for the database clock in tests; ``None`` uses the database clock.
     """
 
-    def __init__(self, conn: psycopg.Connection) -> None:
+    def __init__(
+        self, conn: psycopg.Connection, wall: Callable[[], float] | None = None
+    ) -> None:
         self._conn = conn
-        self._last = load_host_requests(conn)
+        self._wall = wall
 
-    def last(self, host: str) -> float | None:
-        return self._last.get(host)
-
-    def record(self, host: str, at: float) -> None:
-        self._last[host] = max(self._last.get(host, at), at)
-        record_host_request(self._conn, host, at)
+    def reserve(self, host: str, interval_s: float) -> float:
+        at = self._wall() if self._wall is not None else None
+        wait, _slot = reserve_host_slot(self._conn, host, interval_s, at_epoch=at)
+        return wait

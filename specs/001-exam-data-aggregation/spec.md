@@ -239,7 +239,9 @@ store, and compare per-question content hashes and snapshot row counts with the 
   assigned to the year of their official release. Released administered forms are marked
   `administered`. Exports and coverage reports MUST be able to tell the two kinds apart.
 - **FR-006**: An exam MUST NOT be added to the scope unless its official body publishes
-  answer keys.
+  answer keys. The scope is open: beyond the six catalog exams, a new exam enters the
+  catalog only when the maintainer approves a crawler source for it (spec 003 FR-028),
+  with that approval and the proposal's evidence as its provenance.
 
 **Source acquisition**
 
@@ -248,8 +250,14 @@ store, and compare per-question content hashes and snapshot row counts with the 
   evidence. It MUST also be approved before it is fetched, unless its URL matches an
   `auto_fetch` pattern the maintainer committed for its exam in the catalog. Such a file is
   stored and logged, but it is linked to an edition (FR-009) only by an approval.
-- **FR-008**: Files MUST be fetched only from allowlisted official domains, respecting
-  robots.txt and a per-domain rate limit. Fetch attempts that violate these rules MUST be
+  Candidates may also come from the crawler agent (spec 003). They enter the ledger only
+  through `pipeline import-decisions`, which records the maintainer's approval or
+  rejection; a crawler candidate carries its labels, evidence and origin (`official` or
+  `third_party`).
+- **FR-008**: Files MUST be fetched only from allowlisted domains, respecting
+  robots.txt and a per-domain rate limit. Allowlisted domains are the exam's official
+  domains plus any third-party domain allowlisted for that exam by an approved crawler
+  decision (spec 003 FR-026); sources from such a domain are labelled `third_party`. Fetch attempts that violate these rules MUST be
   refused and recorded.
 - **FR-009**: Every fetched raw file MUST be stored once under its content hash and MUST
   never be changed afterwards. Each discovered URL and each raw file MUST be linked to an
@@ -267,8 +275,11 @@ store, and compare per-question content hashes and snapshot row counts with the 
   link is deterministic across rebuilds (FR-020).
 - **FR-011**: All question types MUST be ingested. Figure, table, audio, and free-response
   questions MUST be flagged ineligible for suite export and MUST NOT be dropped.
-- **FR-012**: Answer keys MUST come only from official artifacts. Each key record MUST link
-  to a question and cite the official raw file's content hash and page. A key is a set of one
+- **FR-012**: Answer keys MUST come only from official artifacts, or from an approved
+  third-party source labelled `third_party` (spec 003 FR-029). When both exist for a
+  question, both are kept with their origin, and the flattened view prefers the
+  official key. Each key record MUST link
+  to a question and cite the source raw file's content hash and page. A key is a set of one
   or more choice labels, valid for any number of choices. Multi-answer questions are stored
   in full but are ineligible for suite export; single-answer questions are eligible whatever
   their choice count. Keys MUST NOT be
@@ -575,3 +586,11 @@ Decisions taken to resolve the cross-artifact analysis of spec, plan, and tasks:
 - Q: How is an exam whose official site disallows crawling handled? → A: Its editions are
   `blocked` with `status_reason: robots` (FR-008), citing the official site the ledger
   records as `refused_robots`. CSAT is the case: both KICE hosts disallow all paths.
+
+### Session 2026-11-23 (crawler agent, spec 003 FR-034)
+
+- Q: How does the crawler agent (spec 003) change this spec? → A: FR-006 admits open
+  scope, with new exams added only by an approved crawler decision. FR-007 and FR-008
+  admit labelled third-party sources, entering through `pipeline import-decisions`.
+  FR-012 admits labelled third-party answer keys, with the official key preferred in the
+  flattened view. See [spec 003](../003-crawler-agent/spec.md) FR-026, FR-028, FR-029.

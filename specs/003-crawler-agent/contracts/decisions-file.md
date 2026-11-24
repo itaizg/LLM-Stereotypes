@@ -81,8 +81,11 @@ same `decision_id` has its closing `review` event. A crash mid-decision therefor
 exposes nothing: the catalog view, allowlist and sources are unchanged. Re-running the
 import completes the decision, because every event kind has a dedupe key: the ones in
 [data-model.md](../data-model.md), plus (`proposal_id`, `revision`) for `candidate`.
-The store is updated only after the append and is reconciled from the ledger, as other
-`pipeline` stages are.
+The store's catalog tables are reconciled from the ledger by `pipeline catalog`, as for
+other ledger-writing commands (`pipeline review`); the import itself updates only
+`crawler_proposals.review_state`. An approval names an `edition_id` that must exist in
+`catalog.yaml` by the time `pipeline catalog` runs, as with `pipeline review`, so for a
+new exam the maintainer authors its editions there.
 
 ## Reopen sweep (FR-021b)
 

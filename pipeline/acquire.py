@@ -32,9 +32,11 @@ from pipeline.manifests import (
     FetchRecord,
     LedgerError,
     LedgerEvent,
+    LedgerState,
     SourceState,
     append_event,
     artifact_rows,
+    catalog_view,
     load_catalog,
     rate_limit_for,
     read_ledger,
@@ -81,8 +83,10 @@ def run_catalog(
     one transaction, so the catalog tables are all old or all new.
     """
     apply_schema(conn)
-    catalog = load_catalog(catalog_path)
     state = replay_ledger(read_ledger(ledger_path))
+    # catalog.yaml plus exams and domains added by approved crawler decisions
+    # (spec 003).
+    catalog = catalog_view(load_catalog(catalog_path), state)
     errors = validate_catalog(catalog, state)
     if errors:
         shown = errors[:20]
@@ -145,7 +149,36 @@ def run_catalog(
             ("artifacts", ["sha256", "edition_id"], artifacts),
         ):
             counts += reconcile(conn, table, key=key, scope={}, rows=rows)
+        mark_reprocess(conn, state)
     return StageSummary("catalog", editions=len(catalog.editions), counts=counts)
+
+
+def mark_reprocess(conn: psycopg.Connection, state: LedgerState) -> int:
+    """Flag every question and key from a reopened source for reprocessing (FR-021b).
+
+    A ``review_reopened`` event names the source; its fetched files name the questions
+    and keys derived from it. The flag is set, never cleared here: the stage that
+    reprocesses them clears it.
+    """
+    hashes = sorted(
+        {
+            record.sha256
+            for event in state.reopened
+            for record in state.sources[str(event.text("source_id"))].fetches
+            if record.sha256
+        }
+    )
+    if not hashes:
+        return 0
+    flagged = 0
+    for table in ("questions", "answer_keys"):
+        cursor = conn.execute(
+            f"UPDATE {table} SET needs_reprocess = true "
+            "WHERE artifact_sha256 = ANY(%s) AND NOT needs_reprocess",
+            (hashes,),
+        )
+        flagged += cursor.rowcount
+    return flagged
 
 
 # --- review -------------------------------------------------------------------
@@ -515,6 +548,8 @@ class FetchSummary:
     refused: int = 0
     errors: int = 0
     skipped: int = 0
+    # Crawler sources with a newer, unreviewed revision (spec 003 FR-021b).
+    skipped_reopened: int = 0
 
 
 def _fetch_exam(
@@ -556,6 +591,7 @@ async def fetch(
     refresh: bool = False,
     source_ids: Sequence[str] = (),
     hosts: HostLedger | None = None,
+    suspended: frozenset[str] = frozenset(),
 ) -> FetchSummary:
     """Fetch approved and auto-fetch sources, storing each file once by content hash.
 
@@ -568,7 +604,8 @@ async def fetch(
     it again, which is how changed content at the same URL is noticed. A changed
     file becomes a second blob and a second event: the first is never touched
     (FR-009). Naming a source no rule allows records ``not_approved`` and makes no
-    request.
+    request. A source in ``suspended`` (a crawler source whose content changed since
+    its approval, spec 003 FR-021b) is skipped until a new decision is imported.
     """
     state = replay_ledger(read_ledger(ledger_path))
     edition_exam = {e.edition_id: e.exam_id for e in catalog.editions}
@@ -582,10 +619,13 @@ async def fetch(
         for sid, source in state.sources.items()
     }
     targets = sorted(source_ids) or sorted(sid for sid, o in owners.items() if o)
-    fetched = unchanged = refused = errors = skipped = 0
+    fetched = unchanged = refused = errors = skipped = reopened = 0
     for sid in targets:
         source = state.sources[sid]
         exam_id = owners[sid]
+        if sid in suspended:
+            reopened += 1
+            continue
         if exam_id is None:
             # Outside the --exam filter is skipped; no rule at all is a refusal.
             allowed = source.decision == "approved" or _fetch_exam(
@@ -614,4 +654,4 @@ async def fetch(
             refused += 1
         else:
             errors += 1
-    return FetchSummary(fetched, unchanged, refused, errors, skipped)
+    return FetchSummary(fetched, unchanged, refused, errors, skipped, reopened)

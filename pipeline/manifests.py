@@ -17,7 +17,7 @@ import json
 import os
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
@@ -30,6 +30,10 @@ DEFAULT_RATE_LIMIT_SECONDS = 5.0
 
 EDITION_STATUSES = ("ingested", "not_released", "blocked")
 EDITION_KINDS = ("administered", "practice")
+
+# The committed manifests, for readers outside the CLI (the crawler only reads).
+DEFAULT_CATALOG = Path(__file__).with_name("catalog.yaml")
+DEFAULT_LEDGER = Path(__file__).with_name("ledger.jsonl")
 
 
 class CatalogError(IntegrityRefusal):
@@ -127,6 +131,8 @@ class Exam:
     # amended): committing the pattern is the maintainer's decision. Using the file
     # (artifact, evidence, extraction) still needs an approval linking an edition.
     auto_fetch: tuple[re.Pattern[str], ...] = ()
+    # Spec 003 FR-028: the decision that added this exam, when it came from the ledger.
+    added_by: str | None = None
 
     def auto_fetches(self, url: str, domain: str) -> bool:
         """True when an allowlisted ``url`` matches one of the committed patterns."""
@@ -355,7 +361,21 @@ def rate_limit_for(catalog: Catalog, exam_id: str) -> float:
 
 # --- ledger -----------------------------------------------------------------
 
-LEDGER_KINDS = ("candidate", "review", "fetch", "handcheck", "translation_review")
+LEDGER_KINDS = (
+    "candidate",
+    "review",
+    "fetch",
+    "handcheck",
+    "translation_review",
+    # Written by `pipeline import-decisions` (spec 003): a new exam approved through a
+    # crawler decision, a third-party domain allowlisted for an exam, and an approved
+    # crawler source sent back to review because its content or key changed.
+    "exam_added",
+    "domain_allowlisted",
+    "review_reopened",
+)
+# Event kinds that belong to one crawler decision and count only once its review is in.
+DECISION_KINDS = frozenset({"candidate", "exam_added", "domain_allowlisted"})
 
 
 @dataclass(frozen=True)
@@ -384,14 +404,16 @@ def read_ledger(path: Path) -> list[LedgerEvent]:
         return []
     events: list[LedgerEvent] = []
     last = 0
-    for number, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         try:
             raw: object = json.loads(line)
         except json.JSONDecodeError:
+            if number == len(lines) and not text.endswith("\n"):
+                break  # a torn final line from a crash mid-append: never committed
             raise LedgerError(f"{path}:{number}: not valid JSON") from None
         body = _ledger_mapping(raw, path, number)
         seq = body.pop("seq", None)
@@ -428,15 +450,38 @@ def append_event(
     """
     if kind not in LEDGER_KINDS:
         raise LedgerError(f"unknown ledger kind: {kind!r}")
+    return append_events(path, [(kind, fields)], at=at)[0]
+
+
+def append_events(
+    path: Path, events: Sequence[tuple[str, Mapping[str, object]]], *, at: str
+) -> list[LedgerEvent]:
+    """Append several events as one block: one ``write`` and one ``fsync``.
+
+    The block is built in full before anything is written. A crash mid-write leaves
+    at most a torn final line, which ``read_ledger`` ignores, and the fold ignores a
+    crawler decision whose closing ``review`` is missing, so a partial block exposes
+    nothing (spec 003, contracts/decisions-file.md).
+    """
+    for kind, _ in events:
+        if kind not in LEDGER_KINDS:
+            raise LedgerError(f"unknown ledger kind: {kind!r}")
     existing = read_ledger(path)
-    seq = existing[-1].seq + 1 if existing else 1
-    line = canonical_json({"seq": seq, "kind": kind, "at": at, **fields}) + "\n"
+    seq = existing[-1].seq if existing else 0
+    written: list[LedgerEvent] = []
+    lines: list[str] = []
+    for kind, fields in events:
+        seq += 1
+        lines.append(
+            canonical_json({"seq": seq, "kind": kind, "at": at, **fields}) + "\n"
+        )
+        written.append(LedgerEvent(seq=seq, kind=kind, at=at, fields=dict(fields)))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(line)
+        handle.write("".join(lines))
         handle.flush()
         os.fsync(handle.fileno())
-    return LedgerEvent(seq=seq, kind=kind, at=at, fields=dict(fields))
+    return written
 
 
 def ledger_is_prefix_extension(old: bytes, new: bytes) -> bool:
@@ -500,6 +545,11 @@ class SourceState:
     edition_id: str | None = None
     approvals: dict[str, Approval] = field(default_factory=dict)
     fetches: list[FetchRecord] = field(default_factory=list)
+    # Spec 003: a crawler candidate's origin, proposal and the revision approved.
+    origin: str = "official"
+    proposal_id: str | None = None
+    revision: int | None = None
+    reopened_to: list[int] = field(default_factory=list)
 
     @property
     def fetch_outcome(self) -> str:
@@ -511,6 +561,10 @@ class LedgerState:
     sources: Mapping[str, SourceState]
     handchecks: tuple[LedgerEvent, ...]
     translation_reviews: tuple[LedgerEvent, ...]
+    # Spec 003: exams added and domains allowlisted by approved crawler decisions.
+    exams_added: Mapping[str, LedgerEvent] = field(default_factory=dict)
+    allowlisted: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    reopened: tuple[LedgerEvent, ...] = ()
 
 
 def _opt_iso(value: str | None, where: str) -> date | None:
@@ -533,14 +587,70 @@ def replay_ledger(events: Sequence[LedgerEvent]) -> LedgerState:
     sources: dict[str, SourceState] = {}
     handchecks: list[LedgerEvent] = []
     reviews: list[LedgerEvent] = []
+    exams_added: dict[str, LedgerEvent] = {}
+    allowlisted: dict[str, set[str]] = {}
+    reopened: list[LedgerEvent] = []
+    # A crawler decision's events count only once its closing review is in, so an
+    # import interrupted mid-decision exposes nothing (spec 003).
+    closed = {
+        e.text("decision_id")
+        for e in events
+        if e.kind == "review" and e.text("decision_id") is not None
+    }
     for event in events:
         where = f"ledger seq {event.seq}"
+        decision_id = event.text("decision_id")
+        if (
+            event.kind in DECISION_KINDS
+            and decision_id is not None
+            and decision_id not in closed
+        ):
+            continue
+        if event.kind == "exam_added":
+            key = event.text("exam_key")
+            if key is None:
+                raise LedgerError(f"{where}: exam_added needs exam_key")
+            exams_added.setdefault(key, event)
+            continue
+        if event.kind == "domain_allowlisted":
+            key, domain = event.text("exam_key"), event.text("domain")
+            if key is None or domain is None:
+                raise LedgerError(
+                    f"{where}: domain_allowlisted needs exam_key and domain"
+                )
+            allowlisted.setdefault(key, set()).add(domain)
+            continue
+        if event.kind == "review_reopened":
+            sid = event.text("source_id")
+            if sid is None or sid not in sources:
+                raise LedgerError(f"{where}: review_reopened for an unknown source")
+            state = sources[sid]
+            # Back to review: no approval survives until a new decision is imported.
+            state.decision = "pending"
+            state.decision_reason = None
+            state.edition_id = None
+            state.approvals.clear()
+            revision = event.number("to_revision")
+            if revision is not None:
+                state.reopened_to.append(revision)
+            reopened.append(event)
+            continue
         if event.kind == "candidate":
             sid = event.text("source_id")
             url = event.text("url")
             if sid is None or url is None:
                 raise LedgerError(f"{where}: candidate needs source_id and url")
             if sid in sources:
+                existing = sources[sid]
+                revision = event.number("revision")
+                if (
+                    event.text("method") == "crawler"
+                    and revision is not None
+                    and revision > (existing.revision or 0)
+                ):
+                    existing.revision = revision
+                    existing.proposal_id = event.text("proposal_id")
+                    existing.origin = event.text("origin") or existing.origin
                 continue
             state = SourceState(
                 source_id=sid,
@@ -548,6 +658,9 @@ def replay_ledger(events: Sequence[LedgerEvent]) -> LedgerState:
                 domain=event.text("domain") or "",
                 method=event.text("method") or "manual",
                 found_on=event.text("found_on"),
+                origin=event.text("origin") or "official",
+                proposal_id=event.text("proposal_id"),
+                revision=event.number("revision"),
             )
             auto = event.fields.get("auto_decision")
             if isinstance(auto, dict) and auto.get("decision") == "rejected":
@@ -590,7 +703,66 @@ def replay_ledger(events: Sequence[LedgerEvent]) -> LedgerState:
             handchecks.append(event)
         elif event.kind == "translation_review":
             reviews.append(event)
-    return LedgerState(sources, tuple(handchecks), tuple(reviews))
+    return LedgerState(
+        sources,
+        tuple(handchecks),
+        tuple(reviews),
+        exams_added,
+        {key: frozenset(domains) for key, domains in allowlisted.items()},
+        tuple(reopened),
+    )
+
+
+# A ledger-added exam has no layout until the maintainer writes one in catalog.yaml;
+# extraction skips an exam whose ``added_by`` is set and that has no catalog entry.
+_NO_LAYOUT = ParseConfig(item_marker="", choice_markers=(), columns=1, key_table="")
+
+
+def catalog_view(catalog: Catalog, state: LedgerState) -> Catalog:
+    """``catalog.yaml`` plus what approved crawler decisions added (spec 003).
+
+    An ``exam_added`` event contributes an exam (name, body and language from the
+    event; its domain; ``publishes_keys`` with the decision as evidence; the default
+    rate limit; no seeds or layout). ``domain_allowlisted`` events add domains to an
+    exam's allowlist. A ``catalog.yaml`` entry with the same key always wins: the
+    catalog stays hand-owned, and the ledger only fills in what it does not say.
+    """
+    exams = dict(catalog.exams)
+    for key, event in sorted(state.exams_added.items()):
+        if key in exams:
+            continue
+        domain = event.text("domain")
+        exams[key] = Exam(
+            exam_id=key,
+            name=event.text("name") or key,
+            body=event.text("body") or "",
+            language=event.text("language") or "und",
+            publishes_keys=True,
+            keys_evidence={
+                "decision_id": event.text("decision_id") or "",
+                "proposal_id": event.text("proposal_id") or "",
+            },
+            domains=(domain,) if domain else (),
+            rate_limit_seconds=catalog.default_rate_limit_seconds,
+            seeds=(),
+            parse=_NO_LAYOUT,
+            parse_english=None,
+            card_notes="",
+            added_by=event.text("decision_id"),
+        )
+    for key, domains in state.allowlisted.items():
+        exam = exams.get(key)
+        if exam is None:
+            continue
+        merged = tuple(dict.fromkeys((*exam.domains, *sorted(domains))))
+        if merged != exam.domains:
+            exams[key] = replace(exam, domains=merged)
+    return replace(catalog, exams=exams)
+
+
+def source_origins(state: LedgerState) -> dict[str, str]:
+    """Each source's origin: ``third_party`` only for a crawler URL so labelled."""
+    return {sid: source.origin for sid, source in state.sources.items()}
 
 
 def artifact_rows(state: LedgerState) -> list[dict[str, object]]:
@@ -645,7 +817,7 @@ def validate_catalog(catalog: Catalog, state: LedgerState) -> list[str]:
     """
     errors: list[str] = []
     for exam_id in sorted(catalog.exams):
-        if exam_id not in EXAM_IDS:
+        if exam_id not in EXAM_IDS and exam_id not in state.exams_added:
             errors.append(f"unknown exam: {exam_id}")
     for exam_id in EXAM_IDS:
         exam = catalog.exams.get(exam_id)
