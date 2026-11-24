@@ -1,6 +1,0 @@
-# Where the webserver and daemon find the code location. The repository is mounted at
-# /opt/project; the folder on the path is the one `dagster dev -d orchestration` uses.
-load_from:
-  - python_module:
-      module_name: exam_dagster.definitions
-      working_directory: /opt/project/orchestration

@@ -10,7 +10,7 @@
 > record, and where it names Airflow concepts the mapping above applies.
 
 Discovered by `/team-discover` (before_plan hook) on 2026-11-09 from
-`/Users/itaizemah-goren/team-ai-directives` (CDR index: 34 entries, all `stable`, last
+`~/team-ai-directives` (CDR index: 34 entries, all `stable`, last
 updated 2026-08-12; 6 default skills). The index no longer uses an `Accepted` status, so
 `stable` rows are treated as accepted.
 

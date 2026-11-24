@@ -1,7 +1,7 @@
 # Team Context — 001-exam-data-aggregation
 
 Discovered by `/team-discover` (before_specify hook) on 2026-11-04 from
-`/Users/itaizemah-goren/team-ai-directives`; re-run by the before_plan hook on 2026-11-04
+`~/team-ai-directives`; re-run by the before_plan hook on 2026-11-04
 (CDR index last updated 2026-08-12, 34 entries).
 
 Feature context: domain = data acquisition / dataset curation (exam questions);

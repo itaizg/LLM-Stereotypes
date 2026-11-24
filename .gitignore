@@ -192,3 +192,16 @@ orchestration/dagster_home/*
 
 # Compose secrets (orchestration/.env.example is the tracked template)
 orchestration/.env
+
+# iCloud Drive conflict copies ("name 2.py", "Dockerfile 2", ...): never tracked.
+* [0-9]
+* [0-9].*
+
+# Local coding-agent tooling: per-machine skills, MCP and Spec Kit init options
+# (the init options hold an absolute path to the team directives checkout).
+.agents/
+.claude/skills/
+.codex/
+.mcp.json
+AGENTS.md
+.specify/init-options.json
