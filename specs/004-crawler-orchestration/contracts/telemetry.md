@@ -17,7 +17,18 @@
 | `agent.step`, classifier | `prompt_sha256` / `response_sha256` | hex; present in both modes |
 | `agent.step`, classifier | `langfuse.observation.input` / `langfuse.observation.output` | **`full` mode only**: redacted text, cut to 64 KB, with `…[truncated]` appended when cut |
 
-Check the attribute names against Langfuse's OpenTelemetry mapping for the pinned Langfuse version before writing the code (research R6).
+Also set on generations, so Langfuse needs no guessing about token and cost fields:
+
+| Attribute | Value |
+|---|---|
+| `langfuse.observation.usage_details` | JSON string `{"input": n, "output": n}` |
+| `langfuse.observation.cost_details` | JSON string `{"total": usd}` |
+
+On a failed step or tool (`mark_failed`): span status ERROR, `langfuse.observation.level=ERROR` and `langfuse.observation.status_message=<error code>`.
+
+**Checked against Langfuse's OpenTelemetry docs (T028, https://langfuse.com/integrations/native/opentelemetry):** `langfuse.session.id`, `langfuse.trace.name`, `langfuse.observation.type`, `langfuse.observation.input`/`output` (JSON strings), `langfuse.observation.level`, `langfuse.observation.status_message`, `gen_ai.request.model`, `langfuse.observation.usage_details`, `langfuse.observation.cost_details` and `gen_ai.usage.cost` are documented. The docs give `gen_ai.usage.*` only as a prefix, so `gen_ai.usage.input_tokens`/`output_tokens` are not documented by name, and the key shapes of `usage_details`/`cost_details` are not given. Both are set as a pair for that reason; quickstart D.3 confirms what the Langfuse UI shows.
+
+**Endpoint and headers:** the exporter posts to `<OTEL_EXPORTER_OTLP_ENDPOINT>/v1/traces`. The self-hosted OTLP endpoint needs Langfuse >= 3.22.0. Langfuse's docs add `x-langfuse-ingestion-version=4` to the headers for real-time ingestion; put it in `OTEL_EXPORTER_OTLP_HEADERS` next to `Authorization=Basic …`. `CRAWLER_TRACE_CONTENT` accepts `full` or `metadata`; any other value is treated as `metadata`.
 
 ## Content routing (FR-010a, FR-010b)
 

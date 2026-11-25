@@ -193,3 +193,28 @@ def test_reopened_count_reads_this_runs_flags(crawler_db: Any) -> None:
     add_proposal(crawler_db, "https://a.test/p.pdf", flags=("reopened_after_approval",))
     add_proposal(crawler_db, "https://b.test/p.pdf")
     assert cli.reopened_count(crawler_db, RUN_ID) == 1
+
+
+def test_a_dead_trace_endpoint_is_reported_and_does_not_change_the_exit(
+    env: dict[str, str], results: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Spec 004 FR-011/FR-012: export failure is visible, the run still completes."""
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    env = {**env, "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{port}"}
+    assert run(env) == 0
+    summary = json.loads(next(results.glob("cr_*/summary.json")).read_text())
+    export = summary["trace_export"]
+    assert export["endpoint_set"] and export["spans_failed"] > 0 and export["error"]
+    assert "trace export failed" in capsys.readouterr().err
+
+
+def test_without_an_endpoint_the_summary_says_export_is_off(
+    env: dict[str, str], results: Path
+) -> None:
+    assert run(env) == 0
+    summary = json.loads(next(results.glob("cr_*/summary.json")).read_text())
+    assert summary["trace_export"]["mode"] == "off"

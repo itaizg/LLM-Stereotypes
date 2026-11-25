@@ -202,6 +202,22 @@ def _as_text(result: Contract) -> str:
     return text
 
 
+def _transcript(messages: Sequence[BaseMessage]) -> str:
+    """The messages as plain text for the trace (cut and redacted by the tracer)."""
+    parts: list[str] = []
+    for message in messages:
+        content = message.content
+        if isinstance(content, list):
+            content = " ".join(
+                str(block.get("text", "")) if isinstance(block, dict) else str(block)
+                for block in content
+            )
+        parts.append(f"[{message.type}] {content}")
+        for call in getattr(message, "tool_calls", None) or []:
+            parts.append(f"[tool_call] {json.dumps(call, default=str)}")
+    return "\n".join(parts)
+
+
 def _estimate_tokens(messages: Sequence[BaseMessage], tools: dict[str, Tool]) -> int:
     chars = sum(len(str(m.content)) for m in messages)
     chars += sum(len(json.dumps(t.spec())) for t in tools.values())
@@ -244,23 +260,34 @@ class Crawler:
         if not await state.reserve_cost(worst):
             return {**graph, "pending": None, "done": True}
         state.iterations_used += 1
-        with self.services.tracing.span(
-            "agent.step", iteration=state.iterations_used
-        ) as span:
+        tracing = self.services.tracing
+        with tracing.span("agent.step", iteration=state.iterations_used) as span:
             try:
                 reply = await self.model.ainvoke(graph["messages"])
             except Exception as error:
                 await state.settle_cost(worst, 0.0)
-                span.set_attribute(
-                    "error", self.services.tracing.redact(type(error).__name__)
-                )
+                span.set_attribute("error", tracing.redact(type(error).__name__))
+                tracing.mark_failed(span, type(error).__name__)
                 return self._fail("agent", graph)
             usage = getattr(reply, "usage_metadata", None) or {}
-            cost = model_spec.cost_usd(
-                int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
-            )
+            input_tokens = int(usage.get("input_tokens", 0))
+            output_tokens = int(usage.get("output_tokens", 0))
+            cost = model_spec.cost_usd(input_tokens, output_tokens)
             await state.settle_cost(worst, cost)
             span.set_attribute("cost_usd", round(cost, 6))
+            tracing.generation(
+                span,
+                model_spec.model,
+                input_tokens,
+                output_tokens,
+                cost,
+                _transcript(graph["messages"]),
+                _transcript([reply]),
+            )
+            if not isinstance(reply, AIMessage):
+                tracing.mark_failed(span, "bad_reply")
+            elif (reply.response_metadata or {}).get("stop_reason") == "refusal":
+                tracing.mark_failed(span, "refusal")
         if not isinstance(reply, AIMessage):
             return self._fail("agent", graph)
         if (reply.response_metadata or {}).get("stop_reason") == "refusal":
@@ -311,6 +338,8 @@ class Crawler:
                     result = ToolError(error=ToolErrorCode.STORE_ERROR, retryable=True)
                 outcome = str(result.error) if isinstance(result, ToolError) else "ok"
                 span.set_attribute("outcome", outcome)
+                if isinstance(result, ToolError) and result.error not in NOT_FAILURES:
+                    self.services.tracing.mark_failed(span, outcome)
         return name, result
 
     async def tools_node(self, graph: GraphState) -> GraphState:
@@ -503,7 +532,8 @@ class Crawler:
             "done": False,
         }
         limit = 2 * state.config.budget.max_iterations + 1
-        with self.services.tracing.span("crawler.run"):
+        with self.services.tracing.span("crawler.run") as root:
+            self.services.tracing.mark_root(root)
             await self.compile().ainvoke(initial, config={"recursion_limit": limit})
         self.end_task()
         return state

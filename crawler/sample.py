@@ -32,7 +32,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from crawler.classify import estimate_input_tokens
+from crawler.classify import SYSTEM, estimate_input_tokens, prompt_for
 from crawler.config import (
     MAX_CHOICES,
     MIN_CHOICES,
@@ -357,13 +357,26 @@ async def _classify(
         return None, 0.0
     if not await state.reserve_cost(worst):
         return None, 0.0
-    try:
-        labels = await services.classifier.classify(title, url, text)
-    except Exception:
-        await state.settle_cost(worst, worst)
-        raise
-    cost = model.cost_usd(labels.input_tokens, labels.output_tokens)
-    await state.settle_cost(worst, cost)
+    tracing = services.tracing
+    with tracing.span("llm.classify") as span:
+        try:
+            labels = await services.classifier.classify(title, url, text)
+        except Exception as error:
+            await state.settle_cost(worst, worst)
+            tracing.mark_failed(span, type(error).__name__)
+            raise
+        cost = model.cost_usd(labels.input_tokens, labels.output_tokens)
+        await state.settle_cost(worst, cost)
+        tracing.generation(
+            span,
+            model.model,
+            labels.input_tokens,
+            labels.output_tokens,
+            cost,
+            f"{SYSTEM}\n\n{prompt_for(title, url, text)}",
+            f"site_type={labels.site_type} page_type={labels.page_type} "
+            f"topic={labels.topic}",
+        )
     return labels, cost
 
 

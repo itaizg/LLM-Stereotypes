@@ -46,7 +46,7 @@ from crawler.memory import CrawlerMemory
 from crawler.netsafe import SafeClient, SystemResolver
 from crawler.runstate import Classifier, Database, LanguageDetector, RunState, Services
 from crawler.slots import HostSlots, postgres_reserve
-from crawler.tracing import open_trace, redact_secrets, secret_values
+from crawler.tracing import TraceExport, open_trace, redact_secrets, secret_values
 from pipeline.manifests import DEFAULT_CATALOG, load_catalog
 from pipeline.store import ConnectionFailed, apply_schema, connect
 from pipeline.web import SystemClock, new_client
@@ -241,6 +241,7 @@ async def _crawl(
     slot_conn: psycopg.Connection,
     keys: dict[Provider, str],
     out_dir: Path,
+    exports: list[TraceExport],
 ) -> RunState:
     tracing = open_trace(config.run_id, out_dir, env)
     try:
@@ -270,6 +271,7 @@ async def _crawl(
             return await Crawler(state, services, model, tools).run()
     finally:
         tracing.shutdown()
+        exports.append(tracing.export_status())
 
 
 def _refuse(
@@ -391,10 +393,13 @@ def cmd_run(
         state.dead_hosts |= set(memory.dead_hosts(now()))
         status, code = RunStatus.FAILED, EXIT_FAILED
         terminated = False
+        exports: list[TraceExport] = []
         restore_sigterm = _install_sigterm()
         try:
             asyncio.run(
-                _crawl(state, config, env, factory, conn, slot_conn, keys, out_dir)
+                _crawl(
+                    state, config, env, factory, conn, slot_conn, keys, out_dir, exports
+                )
             )
             status, code = _status_of(state)
         except (Exception, Terminated) as error:
@@ -422,6 +427,7 @@ def cmd_run(
             ),
         )
         reopened = reopened_count(conn, run_id)
+    export = exports[0] if exports else TraceExport(mode="off", endpoint_set=False)
     summary = {
         "run_id": run_id,
         "status": str(status),
@@ -438,8 +444,16 @@ def cmd_run(
         "memory_available": state.memory.available,
         "approval_id": approval_id,
         "terminated": terminated,
+        "trace_export": export.as_json(),
     }
     write_summary(out_dir, summary)
+    if export.spans_failed or export.error:
+        # FR-012: a trace that did not reach Langfuse is reported, never silent.
+        print(
+            f"crawler: ERROR trace export failed: {export.spans_failed} spans, "
+            f"{export.error or 'unknown'}",
+            file=sys.stderr,
+        )
     print(json.dumps(summary), file=sys.stderr)
     if reopened:
         print(

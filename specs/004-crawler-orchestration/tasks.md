@@ -138,7 +138,7 @@ description: "Task list for spec 004, crawler orchestration and tracing"
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T021 [P] [US2] Write `tests/crawler/test_tracing_export.py` using the in-memory span exporter in place of OTLP. Cases:
+- [X] T021 [P] [US2] Write `tests/crawler/test_tracing_export.py` using the in-memory span exporter in place of OTLP. Cases:
   - in `full` mode, the `agent.step` and classifier spans carry `gen_ai.*`, `langfuse.observation.type=generation`, prompt/response hashes and content keys
   - content longer than 64 KB is cut and marked `…[truncated]`
   - secrets inside the content are redacted
@@ -146,28 +146,28 @@ description: "Task list for spec 004, crawler orchestration and tracing"
   - in `metadata` mode, no span holds `CONTENT_KEYS`
   - the root span has `langfuse.session.id == run_id`
   - (analysis C1) a `tool.<name>` span whose result is a `ToolError` counting as a failure (not in spec 003's `NOT_FAILURES`) ends with status ERROR and `langfuse.observation.level=ERROR`, with the error code as the status message. A `NOT_FAILURES` outcome stays OK. The same holds for an `agent.step` whose model call fails or returns a refusal
-- [ ] T022 [P] [US2] Add these to `tests/crawler/test_tracing_export.py`:
+- [X] T022 [P] [US2] Add these to `tests/crawler/test_tracing_export.py`:
   - with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at a closed loopback port, a fake run of N spans finishes within a bounded extra time (shutdown flush ≤ 5 s), and `summary.json` `trace_export` reports `spans_failed > 0` and an error class
   - an endpoint set but the exporter unimportable (monkeypatched) gives `trace_export.error` and does not raise
   - the run's exit code is unchanged in both cases
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] In `crawler/tracing.py`:
+- [X] T023 [US2] In `crawler/tracing.py`:
   - replace the silent OTLP skip with a `CountingExporter` wrapping `OTLPSpanExporter`, inside a `BatchSpanProcessor(export_timeout_millis=5000, max_queue_size=2048)`
   - add `Tracing.export_status() -> TraceExport`
   - add `CONTENT_KEYS`, and make `JsonlExporter` drop those keys
   - add `Tracing.content_mode`, read from `CRAWLER_TRACE_CONTENT` (`full` default, or `metadata`)
   - add helpers `generation(span, model, input_tokens, output_tokens, cost_usd, prompt, response)` (redact, hash, cut to 64 KB; content only in `full` mode) and `mark_root(span, run_id)`
   - (analysis C1) add `mark_failed(span, code)`, which sets status ERROR with the redacted code as the message, and `langfuse.observation.level=ERROR`
-- [ ] T024 [US2] In `crawler/graph.py`:
+- [X] T024 [US2] In `crawler/graph.py`:
   - call `tracing.mark_root` on the `crawler.run` span, and `tracing.generation(...)` inside the existing `agent.step` span (serialize `graph["messages"]` and `reply` as text)
   - (analysis C1) call `tracing.mark_failed(span, code)` in `_call` when the result is a `ToolError` not in `NOT_FAILURES`, and in `agent_node` on a model exception or a refusal
   - attribute and status calls only; no control-flow change
-- [ ] T025 [US2] In `crawler/classify.py`, wrap the classifier model call in a span (`llm.classify`, if one doesn't exist yet) and call `tracing.generation(...)` with the classifier model, usage and text
-- [ ] T026 [US2] In `crawler/cli.py`, add the `trace_export` block (mode, endpoint_set, counts, error) to `summary.json`, and print one ERROR line `trace export failed: <n> spans, <error>` when `spans_failed > 0` or `error` is set (FR-012)
-- [ ] T027 [P] [US2] Write `orchestration/langfuse/docker-compose.yaml` (Langfuse v3 official compose pinned to one release tag, named volumes only, web on `127.0.0.1:3000`) and `orchestration/langfuse/.env.example` (variable names only)
-- [ ] T028 [US2] Check the attribute names in T023 against Langfuse's OpenTelemetry docs for the pinned version (research R6). Fix [contracts/telemetry.md](contracts/telemetry.md) and the code if they differ
+- [X] T025 [US2] In `crawler/classify.py`, wrap the classifier model call in a span (`llm.classify`, if one doesn't exist yet) and call `tracing.generation(...)` with the classifier model, usage and text
+- [X] T026 [US2] In `crawler/cli.py`, add the `trace_export` block (mode, endpoint_set, counts, error) to `summary.json`, and print one ERROR line `trace export failed: <n> spans, <error>` when `spans_failed > 0` or `error` is set (FR-012)
+- [X] T027 [P] [US2] Write `orchestration/langfuse/docker-compose.yaml` (Langfuse v3 official compose pinned to one release tag, named volumes only, web on `127.0.0.1:3000`) and `orchestration/langfuse/.env.example` (variable names only)
+- [X] T028 [US2] Check the attribute names in T023 against Langfuse's OpenTelemetry docs for the pinned version (research R6). Fix [contracts/telemetry.md](contracts/telemetry.md) and the code if they differ
 
 **Checkpoint**: T021–T022 pass. Quickstart D.3 shows a complete trace by session id.
 

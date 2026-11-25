@@ -1,0 +1,86 @@
+# Self-hosted Langfuse v3 for crawler traces (specs/004-crawler-orchestration).
+# Shaped after Langfuse's official docker-compose, with images pinned and every port on
+# loopback. The web UI is http://localhost:3000; the crawler exports to
+# http://localhost:3000/api/public/otel (the OTLP endpoint needs Langfuse >= 3.22.0).
+# Secrets come from orchestration/langfuse/.env (gitignored); see .env.example.
+# Pinned tags were chosen without pulling them here: check them on first `up`.
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?set it in .env}@postgres:5432/postgres
+  SALT: ${SALT:?set it in .env}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set it in .env}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?set it in .env}
+  NEXTAUTH_URL: http://localhost:3000
+  TELEMETRY_ENABLED: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set it in .env}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${REDIS_AUTH:?set it in .env}
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set it in .env}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+
+services:
+  langfuse-web:
+    image: langfuse/langfuse:3.22.0
+    restart: unless-stopped
+    depends_on: [postgres, clickhouse, redis, minio]
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment: *langfuse-env
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3.22.0
+    restart: unless-stopped
+    depends_on: [postgres, clickhouse, redis, minio]
+    ports:
+      - "127.0.0.1:3030:3030"
+    environment: *langfuse-env
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set it in .env}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set it in .env}
+    volumes:
+      - langfuse_minio_data:/data
+
+  redis:
+    image: redis:7.2.5
+    restart: unless-stopped
+    command: --requirepass ${REDIS_AUTH:?set it in .env} --maxmemory-policy noeviction
+
+  postgres:
+    image: postgres:16.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env}
+      POSTGRES_DB: postgres
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
