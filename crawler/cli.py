@@ -42,6 +42,7 @@ from crawler.config import (
 from crawler.contracts import Provider, RunStatus
 from crawler.graph import ChatModel, Crawler, Tool, build_tools, chat_model
 from crawler.lexicon import LexiconError, load_lexicon
+from crawler.logs import RunLog, configure_logging
 from crawler.memory import CrawlerMemory
 from crawler.netsafe import SafeClient, SystemResolver
 from crawler.runstate import Classifier, Database, LanguageDetector, RunState, Services
@@ -275,9 +276,14 @@ async def _crawl(
 
 
 def _refuse(
-    env: Mapping[str, str], run_id: str, status: str, reason: str, message: str
+    env: Mapping[str, str],
+    log: RunLog,
+    run_id: str,
+    status: str,
+    reason: str,
+    message: str,
 ) -> None:
-    print(f"crawler: {message}; nothing was run", file=sys.stderr)
+    log.error(f"crawler: {message}; nothing was run")
     write_summary(results_root(env) / run_id, refusal_summary(run_id, status, reason))
 
 
@@ -310,6 +316,7 @@ def cmd_run(
 ) -> int:
     standing = args.approval == "standing"
     run_id = args.run_id or new_run_id(now())
+    log = RunLog(configure_logging(env), run_id, secret_values(env))
     try:
         if args.run_id and not RUN_ID_PATTERN.match(args.run_id):
             raise UsageError(f"--run-id must look like {new_run_id(now())}")
@@ -317,7 +324,7 @@ def cmd_run(
         load_lexicon()
         keys = _require(env, config)
     except (UsageError, LexiconError, ValueError) as error:
-        print(f"crawler: {error}", file=sys.stderr)
+        log.error(f"crawler: {error}")
         return EXIT_USAGE
     print(describe(config), file=sys.stderr)
     secrets = secret_values(env)
@@ -325,7 +332,7 @@ def cmd_run(
         conn = connect(env["PIPELINE_DSN"])
         slot_conn = connect(env["PIPELINE_DSN"])
     except ConnectionFailed as error:
-        print(f"crawler: {error}", file=sys.stderr)
+        log.error(f"crawler: {error}")
         return EXIT_FAILED
     out_dir = results_root(env) / run_id
     with conn, slot_conn:
@@ -336,6 +343,7 @@ def cmd_run(
             if isinstance(checked, approval.Refusal):
                 _refuse(
                     env,
+                    log,
                     run_id,
                     "not_approved",
                     checked.reason,
@@ -349,6 +357,7 @@ def cmd_run(
             if (answer or "").strip().lower() != "y":
                 _refuse(
                     env,
+                    log,
                     run_id,
                     "not_approved",
                     "refused_at_prompt",
@@ -363,11 +372,16 @@ def cmd_run(
                 "SELECT 1 FROM crawler_runs WHERE run_id = %s", (run_id,)
             ).fetchone()
         ):
-            print(f"crawler: run {run_id} already exists", file=sys.stderr)
+            log.error(f"crawler: run {run_id} already exists")
             return EXIT_USAGE
         if not _try_run_lock(conn):
             _refuse(
-                env, run_id, "busy", "run_in_progress", "another run is in progress"
+                env,
+                log,
+                run_id,
+                "busy",
+                "run_in_progress",
+                "another run is in progress",
             )
             return EXIT_BUSY
         config = config.model_copy(
@@ -404,10 +418,7 @@ def cmd_run(
             status, code = _status_of(state)
         except (Exception, Terminated) as error:
             terminated = isinstance(error, Terminated)
-            print(
-                f"crawler: failed: {redact_secrets(repr(error), secrets)}",
-                file=sys.stderr,
-            )
+            log.error(f"crawler: failed: {redact_secrets(repr(error), secrets)}")
         finally:
             restore_sigterm()
         conn.execute(
@@ -449,17 +460,15 @@ def cmd_run(
     write_summary(out_dir, summary)
     if export.spans_failed or export.error:
         # FR-012: a trace that did not reach Langfuse is reported, never silent.
-        print(
-            f"crawler: ERROR trace export failed: {export.spans_failed} spans, "
-            f"{export.error or 'unknown'}",
-            file=sys.stderr,
+        log.error(
+            f"crawler: trace export failed: {export.spans_failed} spans, "
+            f"{export.error or 'unknown'}"
         )
-    print(json.dumps(summary), file=sys.stderr)
+    log.info(json.dumps(summary))
     if reopened:
-        print(
+        log.info(
             f"crawler: {reopened} approved source(s) changed and are suspended until "
-            "re-reviewed; run: pipeline import-decisions --reopen-only",
-            file=sys.stderr,
+            "re-reviewed; run: pipeline import-decisions --reopen-only"
         )
     return code
 

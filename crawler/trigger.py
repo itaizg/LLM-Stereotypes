@@ -141,12 +141,22 @@ def _read_json(path: Path) -> dict[str, object] | None:
     return data if isinstance(data, dict) else None
 
 
+def _message_of(line: str) -> str:
+    """The message of a console line, in either log format."""
+    if line.startswith("{"):
+        try:
+            return str(json.loads(line).get("msg", ""))
+        except ValueError:
+            return ""
+    return line.partition(" msg=")[2]
+
+
 def _last_crawler_line(path: Path) -> str:
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return "the run could not start"
-    ours = [line for line in lines if line.startswith("crawler:")]
+    ours = [m for m in map(_message_of, lines) if m.startswith("crawler:")]
     return ours[-1] if ours else "the run could not start"
 
 

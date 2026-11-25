@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 from collections.abc import Generator, Mapping, Sequence
@@ -227,6 +228,7 @@ class Tracing:
         sink: IO[str],
         env: Mapping[str, str] | None = None,
         otlp_exporter: SpanExporter | None = None,
+        console: logging.Logger | None = None,
     ) -> None:
         environment = os.environ if env is None else env
         self.run_id = run_id
@@ -246,6 +248,15 @@ class Tracing:
         self._provider.add_span_processor(_RunIdProcessor(run_id))
         self._provider.add_span_processor(
             SimpleSpanProcessor(JsonlExporter(sink, self.secrets))
+        )
+        # Imported here: logs.py uses this module's redaction helpers.
+        from crawler.logs import LogSpanProcessor, configure_logging
+
+        self._provider.add_span_processor(
+            LogSpanProcessor(
+                console if console is not None else configure_logging(environment),
+                self.secrets,
+            )
         )
         if otlp_exporter is not None:
             self._add_otlp(otlp_exporter)
@@ -352,8 +363,11 @@ class Tracing:
 
 
 def open_trace(
-    run_id: str, out_dir: Path, env: Mapping[str, str] | None = None
+    run_id: str,
+    out_dir: Path,
+    env: Mapping[str, str] | None = None,
+    console: logging.Logger | None = None,
 ) -> Tracing:
     out_dir.mkdir(parents=True, exist_ok=True)
     sink = (out_dir / "trace.jsonl").open("a", encoding="utf-8")
-    return Tracing(run_id, sink, env)
+    return Tracing(run_id, sink, env, console=console)
