@@ -226,6 +226,13 @@ def test_a_run_that_obeys_term_is_still_timed_out(serving: Serve) -> None:
     assert body["outcome"] == "timed_out" and process.signals == ["TERM"]
 
 
+def test_an_escalated_run_is_reported_as_escalated(serving: Serve) -> None:
+    """Exit 5 (five failures of one tool) reaches n8n as outcome `escalated`."""
+    base, _ = serving(FakeProcess(5), {"status": "escalated", "cost_usd": 0.5})
+    status, body = call(f"{base}/runs", "POST", {})
+    assert (status, body["outcome"], body["exit_code"]) == (200, "escalated", 5)
+
+
 def test_the_exit_code_mapping_matches_the_data_model() -> None:
     assert EXIT_TO_OUTCOME == {
         0: "completed",

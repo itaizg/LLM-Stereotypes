@@ -213,6 +213,27 @@ def test_a_refusal_marks_the_agent_step_as_an_error() -> None:
     assert statuses(exporter, "agent.step")[0] == "ERROR"
 
 
+def test_exported_spans_nest_the_same_way_as_trace_jsonl() -> None:
+    """FR-008: the trace Langfuse shows has the structure of the local trace."""
+    tracing, sink, exporter = make()
+    with tracing.span("crawler.run"), tracing.span("agent.step"):
+        with tracing.span("tool.probe_url"):
+            pass
+        with tracing.span("llm.classify"):
+            pass
+    tracing.shutdown()
+    local = {
+        r["span_id"]: r["parent_id"]
+        for r in map(json.loads, sink.getvalue().splitlines())
+    }
+    exported = {
+        f"{s.context.span_id:016x}": (f"{s.parent.span_id:016x}" if s.parent else None)
+        for s in exporter.get_finished_spans()
+        if s.context
+    }
+    assert exported == local and len(local) == 4
+
+
 # --- export failures never fail the run ----------------------------------------------
 
 

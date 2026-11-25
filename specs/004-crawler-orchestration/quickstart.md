@@ -62,6 +62,7 @@ Expected: all pass. This covers approval rules, trigger auth, the busy/refusal/d
    - Unset a search key and restart the trigger. Expected: a failure naming the variable, never its value.
    - Stop Langfuse during a run. Expected: the run still completes, there's an error line `trace export failed: …`, and `summary.json` `trace_export.spans_failed > 0`.
    - Set `CRAWLER_MAX_RUNTIME_S=120`. Expected: `timed_out`.
+   - Set an invalid search-provider key (for example `TAVILY_API_KEY=invalid`) and restart the trigger. Expected: the search tool fails five times in a row, the run ends with exit 5 and outcome `escalated`, one email is sent, and the failing `tool.web_search` spans are ERROR in Langfuse.
 5. **SC-004:** compare the wall time of a run with tracing off against a run with Langfuse stopped. Expected: at most 10% slower.
 6. **SC-005:** scan the repo, `n8n export:workflow` output, the console log and a Langfuse trace export for the values of `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `CRAWLER_TRIGGER_TOKEN` and the Langfuse secret key. Expected: zero hits.
 7. Repeat step 3 with `CRAWLER_TRACE_CONTENT=metadata`. Expected: the generations show no text, and `summary.json` `trace_export.mode = "metadata"`.

@@ -118,7 +118,7 @@ description: "Task list for spec 004, crawler orchestration and tracing"
   - `trigger.json` written at launch and at exit
   - the single `EXIT_TO_OUTCOME` mapping
   - `GET /runs/{id}` read from files plus the `crawler_runs` row
-- [X] T017 [US1] Wire `python -m crawler trigger [--port 8765]` into `crawler/cli.py` / `crawler/__main__.py`
+- [X] T017 [US1] Wire `python -m crawler trigger [--port 8765]` into `crawler/cli.py` (`crawler/__main__.py` only calls `cli.main`)
 - [X] T018 [P] [US1] Write `orchestration/n8n/docker-compose.yaml`: n8n with a pinned tag, the `n8n_data` named volume, `N8N_ENCRYPTION_KEY` and timezone from `orchestration/n8n/.env`, port 5678 bound to `127.0.0.1`, and an `extra_hosts` entry `host.docker.internal:host-gateway`
 - [X] T019 [US1] Build and export `orchestration/n8n/crawler-run.workflow.json` per [contracts/n8n-workflow.md](contracts/n8n-workflow.md):
   - Schedule `0 2 * * *` and the Webhook trigger

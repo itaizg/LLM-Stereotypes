@@ -1,7 +1,13 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.5.0 → 1.5.1
+Version change: 1.5.1 → 1.5.2 (DRAFT, for the maintainer to review in the PR)
+Bump rationale: PATCH. Clarifies the HITL rule under "Agent loops and termination":
+  a standing approval, given in advance by a person, time-limited and bound to the exact
+  models and prices, counts as the human approval before spending (spec 004, analysis D2).
+  No principle or gate is removed or redefined.
+
+Version change (previous): 1.5.0 → 1.5.1
 Bump rationale: PATCH. Clarifies principle II: the ruff exclusion rule also covers vendored
   tool code maintained upstream (`.specify/`), in addition to `legacy/`. No principle or gate
   is removed or redefined; the gate still runs on all project code.
@@ -259,7 +265,7 @@ how that claim stays true as the code grows.
 ### Agent loops and termination
 - Every agent loop defines a **max iterations** limit.
 - Repeated failure of the same agent (N consecutive failures; N is set per agent) stops the loop and escalates instead of retrying again.
-- **HITL:** human approval is required before any irreversible action (deleting data, sending messages, writing to production, spending money, dropping a memory namespace).
+- **HITL:** human approval is required before any irreversible action (deleting data, sending messages, writing to production, spending money, dropping a memory namespace). A standing approval counts, when a person gave it in advance, it expires (at most 30 days), and it is bound to the exact models, prices and limits it covers; a change to any of them voids it.
 
 ### Context management
 - Compact context **at task boundaries**, and whenever context passes 50%. Before compacting, persist anything that compaction would discard to episodic memory.
@@ -313,4 +319,4 @@ how that claim stays true as the code grows.
 - Spec Kit plans (`/speckit-plan`) MUST include a Constitution Check that evaluates the
   design against these principles before implementation begins.
 
-**Version**: 1.5.1 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-25
+**Version**: 1.5.2 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-25

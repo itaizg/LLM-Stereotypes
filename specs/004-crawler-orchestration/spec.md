@@ -104,7 +104,7 @@ trace file: every step appears in both, with the same run id.
 
 - **FR-001**: The workflow MUST start the existing crawler command unchanged in behaviour; it MUST NOT choose exams, tools, retries or next steps (those stay in the crawler).
 - **FR-001a**: The workflow MUST start runs only through a run trigger with a fixed contract: *start* returns a run id or a refusal reason, and *status* returns the run's outcome. The contract MUST NOT depend on where the crawler runs, so a container-based launcher can replace the local one without changing the workflow.
-- **FR-001b**: The local run trigger MUST listen on the local machine only, MUST reject calls without a shared token (supplied by environment variable), and MUST do nothing except start the crawler command and report its status.
+- **FR-001b**: The local run trigger MUST listen on the local machine only, MUST reject calls without a shared token (supplied by environment variable), and MUST do nothing except start the crawler command, report its status, and stop it at the maximum run time (FR-006).
 - **FR-002**: The workflow MUST support a schedule trigger and an on-demand trigger.
 - **FR-003**: The workflow MUST allow at most one run at a time and record refused starts as skipped.
 - **FR-004**: An unattended run MUST keep spec 003's human budget approval through a standing pre-approved budget cap. A person approves the cap once and records who approved it and when. The standing approval is stored in the pipeline database, not in a local file. It expires 30 days after it is given, and is cancelled earlier if the cap, the models or the model prices in the run config change. After that, a person must approve again. An unattended run proceeds only if its budget fits within the cap, and records the standing approval (approver and time) as its `approved_by`/`approved_at`. A run whose budget exceeds the cap, or that has no valid standing approval, exits as not approved and spends nothing. Interactive runs keep the TTY prompt unchanged.
@@ -130,7 +130,7 @@ trace file: every step appears in both, with the same run id.
 
 ### Key Entities
 
-- **Workflow Execution**: one trigger firing; has trigger type, start/end time, linked run id, outcome (completed, failed, escalated, stopped-at-limit, not-approved, timed-out, skipped).
+- **Workflow Execution**: one trigger firing; has trigger type, start/end time, linked run id, outcome (completed, failed, escalated, stopped-at-limit, not-approved, timed-out, skipped, trigger-unreachable).
 - **Run Trace**: the observability tool's view of one crawler run; keyed by run id; contains spans for steps, LLM calls and tool calls.
 - **Console Log Line**: one structured record per step; shares the run id and step name with the matching span.
 
@@ -150,6 +150,6 @@ trace file: every step appears in both, with the same run id.
 - "Agent #1" is the spec 003 crawler (`python -m crawler run`). Other agents and the experiment harness are not orchestrated in this feature.
 - The crawler's existing OpenTelemetry spans are the source of the trace, taken in through a standard trace endpoint. In full-text mode, LLM spans also carry prompt/response text, but only on the export path; the local `trace.jsonl` stays metadata-only.
 - Prompt text may contain fragments of copyrighted exam pages. That is acceptable only because the observability tool runs locally and its data is never committed or shared. Its data store is treated like the gitignored `results/` folder.
-- The workflow tool runs in a container. The crawler runs on the host machine and is started through the local run trigger (FR-001a/b). Running the crawler in its own container, and later as Kubernetes Jobs next to XERJ, is a follow-up recorded in [todo.md](todo.md).- Default maximum run time is the crawler's own budget limit plus a margin; the exact value is set during planning.
+- The workflow tool runs in a container. The crawler runs on the host machine and is started through the local run trigger (FR-001a/b). Running the crawler in its own container, and later as Kubernetes Jobs next to XERJ, is a follow-up recorded in [todo.md](todo.md).- Default maximum run time is 3 h (`CRAWLER_MAX_RUNTIME_S`), a placeholder tuned after the first live run (research R5, T035).
 - Missed schedule runs are not caught up; one missed night is acceptable for a research crawler.
 - Live end-to-end checks spend money (search and LLM calls), so they are manual maintainer steps, as with spec 003's T074.
