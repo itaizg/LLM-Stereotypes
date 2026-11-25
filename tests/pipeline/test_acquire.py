@@ -598,3 +598,191 @@ class TestCommittedCatalog:
         )
         assert any("has no edition" in line for line in found)
         assert any("keys_evidence" in line for line in found)
+
+
+# --- the catalog view: catalog.yaml plus approved crawler decisions (spec 003) --------
+
+
+def add_crawler_exam(ds: DatasetBuilder, *, closed: bool = True) -> None:
+    from pipeline.manifests import append_events
+
+    block: list[tuple[str, dict[str, object]]] = [
+        (
+            "exam_added",
+            {
+                "exam_key": "vestibular_x",
+                "name": "Vestibular X",
+                "body": "Universidade X",
+                "language": "pt",
+                "domain": "vest.example",
+                "decision_id": "dec_v",
+                "proposal_id": "prop_0000000000000009",
+                "revision": 1,
+                "evidence": ["https://vest.example/p.pdf"],
+            },
+        ),
+        (
+            "domain_allowlisted",
+            {
+                "exam_key": "sat",
+                "domain": "mirror.example",
+                "origin": "third_party",
+                "decision_id": "dec_v",
+            },
+        ),
+    ]
+    if closed:
+        block.append(
+            (
+                "candidate",
+                {
+                    "source_id": "src_00000000000000aa",
+                    "url": "https://vest.example/p.pdf",
+                    "domain": "vest.example",
+                    "method": "crawler",
+                    "found_on": None,
+                    "proposal_id": "prop_0000000000000009",
+                    "revision": 1,
+                    "origin": "official",
+                    "decision_id": "dec_v",
+                },
+            )
+        )
+        block.append(
+            (
+                "review",
+                {
+                    "source_id": "src_00000000000000aa",
+                    "decision": "rejected",
+                    "edition_id": None,
+                    "role": None,
+                    "published": None,
+                    "reason": "test",
+                    "decision_id": "dec_v",
+                },
+            )
+        )
+    append_events(ds.ledger_path, block, at=ds.at())
+
+
+class TestCatalogView:
+    def test_view_adds_the_exam_and_the_allowlisted_domain(
+        self, dataset: DatasetBuilder
+    ) -> None:
+        from pipeline.manifests import catalog_view
+
+        add_crawler_exam(dataset)
+        state = replay_ledger(read_ledger(dataset.ledger_path))
+        view = catalog_view(load_catalog(dataset.catalog_path), state)
+        exam = view.exams["vestibular_x"]
+        assert (exam.name, exam.language, exam.domains, exam.publishes_keys) == (
+            "Vestibular X",
+            "pt",
+            ("vest.example",),
+            True,
+        )
+        assert exam.seeds == () and exam.added_by == "dec_v"
+        assert view.exams["sat"].domains[-1] == "mirror.example"
+        assert validate_catalog(view, state) == []
+
+    def test_view_ignores_an_unclosed_decision(self, dataset: DatasetBuilder) -> None:
+        from pipeline.manifests import catalog_view
+
+        add_crawler_exam(dataset, closed=False)
+        state = replay_ledger(read_ledger(dataset.ledger_path))
+        assert (
+            "vestibular_x"
+            not in catalog_view(load_catalog(dataset.catalog_path), state).exams
+        )
+
+    def test_view_catalog_entry_wins(self, dataset: DatasetBuilder) -> None:
+        from pipeline.manifests import catalog_view
+
+        add_crawler_exam(dataset)
+        dataset.catalog["exams"]["vestibular_x"] = {
+            **dataset.catalog["exams"]["sat"],
+            "name": "Hand-written name",
+        }
+        dataset.save()
+        state = replay_ledger(read_ledger(dataset.ledger_path))
+        exam = catalog_view(load_catalog(dataset.catalog_path), state).exams[
+            "vestibular_x"
+        ]
+        assert (exam.name, exam.added_by) == ("Hand-written name", None)
+
+    def test_view_run_catalog_writes_the_new_exam(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        add_crawler_exam(dataset)
+        run_catalog(db, dataset.catalog_path, dataset.ledger_path)
+        row = db.execute(
+            "SELECT name, language, domains, publishes_keys FROM exams "
+            "WHERE exam_id = 'vestibular_x'"
+        ).fetchone()
+        assert row == ("Vestibular X", "pt", ["vest.example"], True)
+
+    def test_view_pipeline_exams_lists_it(
+        self, dataset: DatasetBuilder, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from pipeline import __main__ as cli
+
+        add_crawler_exam(dataset)
+        code = cli.main(
+            [
+                "exams",
+                "--catalog",
+                str(dataset.catalog_path),
+                "--ledger",
+                str(dataset.ledger_path),
+            ]
+        )
+        assert code == 0
+        assert "vestibular_x" in capsys.readouterr().out.splitlines()
+
+    def test_view_reopened_sources_mark_questions_for_reprocessing(
+        self, db: psycopg.Connection, dataset: DatasetBuilder
+    ) -> None:
+        from pipeline.acquire import mark_reprocess
+        from pipeline.manifests import append_event
+
+        sid = dataset.add_source(
+            "https://sat.exams.test/p.pdf", SAT, "paper", fetched=b"%PDF reopened"
+        )
+        append_event(
+            dataset.ledger_path,
+            "review_reopened",
+            {
+                "source_id": sid,
+                "proposal_id": "prop_0000000000000001",
+                "from_revision": 1,
+                "to_revision": 2,
+                "changed": ["content"],
+            },
+            at=dataset.at(),
+        )
+        state = replay_ledger(read_ledger(dataset.ledger_path))
+        import hashlib
+
+        digest = hashlib.sha256(b"%PDF reopened").hexdigest()
+        db.execute("INSERT INTO exams VALUES ('sat', 'S', 'B', 'en', '{}', true)")
+        db.execute(
+            "INSERT INTO exam_editions (edition_id, exam_id, year, sitting, kind, "
+            "status, "
+            "lineage, language, evidence) VALUES (%s, 'sat', 2020, 'main', "
+            "'administered', "
+            "'not_released', 'l', 'en', '[{}]')",
+            (SAT,),
+        )
+        db.execute(
+            "INSERT INTO questions (question_id, edition_id, canonical_question_id, "
+            "section, item, print_order, stem, choices, has_figure, has_table, "
+            "has_audio, "
+            "is_free_response, source_url, artifact_sha256, page, pipeline_version, "
+            "content_hash) VALUES ('q1', %s, 'c', 's', '1', 1, 'synthetic', '[]', "
+            "false, "
+            "false, false, false, 'u', %s, 1, 'v', 'x')",
+            (SAT, digest),
+        )
+        assert mark_reprocess(db, state) == 1
+        assert db.execute("SELECT needs_reprocess FROM questions").fetchone() == (True,)
+        assert mark_reprocess(db, state) == 0

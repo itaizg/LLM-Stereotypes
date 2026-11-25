@@ -1,0 +1,32 @@
+# Hand-labelled URLs for the crawler's live eval (spec 003 FR-035, SC-001, SC-002).
+#
+# URLs and expected outcomes only: no page text is committed (FR-020).
+# Positives are official sources the pipeline already approved or fetched (ENEM and the
+# Common Test from the ledger's approved papers; SAT from its fetched practice tests).
+# Negatives are pages that must not pass: articles, home pages and index pages.
+#
+# Run it by hand; it spends money and needs approval: python -m crawler.evals.live
+version: 1
+urls:
+  # ENEM (INEP), approved papers
+  - {url: "https://download.inep.gov.br/educacao_basica/enem/provas/2015/2015_PV_impresso_D1_CD1.pdf", expected: passed}
+  - {url: "https://download.inep.gov.br/educacao_basica/enem/provas/2015/2015_PV_impresso_D2_CD5.pdf", expected: passed}
+  - {url: "https://download.inep.gov.br/educacao_basica/enem/provas/2015/2015_PV_reaplicacao_PPL_D1_CD9.pdf", expected: passed}
+  - {url: "https://download.inep.gov.br/educacao_basica/enem/provas/2015/2015_PV_reaplicacao_PPL_D2_CD15.pdf", expected: passed}
+  # Common Test (DNC), approved papers
+  - {url: "https://www.dnc.ac.jp/albums/abm.php?d=666&f=abm00004691.pdf&n=2024_or_01_kokugo.pdf", expected: passed}
+  - {url: "https://www.dnc.ac.jp/albums/abm.php?d=666&f=abm00004696.pdf&n=2024_or_24_butsurikiso.pdf", expected: passed}
+  - {url: "https://www.dnc.ac.jp/albums/abm.php?d=666&f=abm00004694.pdf&n=2024_or_25_kagakukiso.pdf", expected: passed}
+  - {url: "https://www.dnc.ac.jp/albums/abm.php?d=666&f=abm00004703.pdf&n=2024_or_26_seibutsukiso.pdf", expected: passed}
+  # SAT (College Board), fetched practice tests
+  - {url: "https://satsuite.collegeboard.org/media/pdf/sat-practice-test-4-digital.pdf", expected: passed}
+  - {url: "https://satsuite.collegeboard.org/media/pdf/sat-practice-test-5-digital.pdf", expected: passed}
+  - {url: "https://satsuite.collegeboard.org/media/pdf/sat-practice-test-10-digital.pdf", expected: passed}
+  - {url: "https://satsuite.collegeboard.org/media/pdf/sat-practice-test-11-digital.pdf", expected: passed}
+  # Negatives
+  - {url: "https://en.wikipedia.org/wiki/SAT", expected: failed}
+  - {url: "https://en.wikipedia.org/wiki/Exame_Nacional_do_Ensino_M%C3%A9dio", expected: failed}
+  - {url: "https://www.dnc.ac.jp/", expected: failed}
+  - {url: "https://satsuite.collegeboard.org/", expected: failed}
+  - {url: "https://www.gov.br/inep/pt-br", expected: failed}
+  - {url: "https://www.kice.re.kr/", expected: failed}

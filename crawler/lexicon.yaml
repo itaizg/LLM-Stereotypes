@@ -1,0 +1,78 @@
+# Keyword lexicon for the crawler agent (spec 003 FR-006, FR-014, FR-018).
+#
+# Per language, four categories of phrases:
+#   exam:        words that name an exam or a paper (seed queries, site and page signals)
+#   item:        words that name a question or item
+#   instruction: phrases that appear in exam instructions ("choose the best answer"); the
+#                multiple-choice check needs at least one hit when the page's language
+#                has a lexicon (FR-014)
+#   key:         words that name an answer key (key status, FR-015)
+#
+# Matching is case-insensitive, after Unicode NFKC normalisation, on whole phrases. Keep
+# phrases short and literal: they are counted, never interpreted.
+#
+# STATUS: drafted with the implementation (task T007). The maintainer reviews it before
+# the first live run; a native-speaker pass on he, ko, zh and ja is recommended.
+version: 1
+languages:
+  en:
+    exam: [exam, test, past paper, practice test, sample test, question paper, sat]
+    item: [question, questions, item, items]
+    instruction:
+      - choose the best answer
+      - which of the following
+      - select the best answer
+      - mark your answer
+      - choose the correct answer
+      - answer choices
+    key: [answer key, answers, answer explanations, scoring guide, mark scheme]
+  pt:
+    exam: [prova, exame, enem, caderno de questões, simulado, vestibular]
+    item: [questão, questões, item, itens]
+    instruction:
+      - assinale a alternativa
+      - marque a alternativa
+      - alternativa correta
+      - assinale a opção
+      - qual das alternativas
+    key: [gabarito, gabaritos, resposta correta, respostas]
+  he:
+    exam: [מבחן, בחינה, פסיכומטרי, מבחן פסיכומטרי, מבחן לדוגמה, בגרות]
+    item: [שאלה, שאלות]
+    instruction:
+      - בחרו את התשובה הנכונה
+      - סמנו את התשובה
+      - איזו מהתשובות
+      - איזה מהמשפטים
+      - התשובה הנכונה היא
+    key: [מפתח תשובות, תשובות נכונות, פתרונות, פתרון]
+  ko:
+    exam: [시험, 수능, 대학수학능력시험, 모의고사, 기출문제, 문제지]
+    item: [문제, 문항]
+    instruction:
+      - 가장 적절한 것은
+      - 옳은 것은
+      - 옳지 않은 것은
+      - 다음 중
+      - 고르시오
+    key: [정답, 정답표, 해설, 정답 및 해설]
+  zh:
+    exam: [考试, 高考, 试卷, 真题, 试题, 模拟题]
+    item: [题, 试题, 选择题]
+    instruction:
+      - 下列选项中
+      - 下列说法正确的是
+      - 只有一项是符合题目要求的
+      - 选出正确答案
+      - 在每小题给出的四个选项中
+    key: [答案, 参考答案, 答案解析, 标准答案]
+  ja:
+    exam: [試験, 共通テスト, 大学入学共通テスト, センター試験, 過去問, 問題冊子]
+    item: [問題, 問, 設問]
+    instruction:
+      - 最も適当なものを
+      - 一つ選べ
+      - 次の中から
+      - 選びなさい
+      - 正しいものを
+    key: [正解, 解答, 正解表, 解答例]

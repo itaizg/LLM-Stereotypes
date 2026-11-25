@@ -20,9 +20,15 @@ from pathlib import Path
 
 import psycopg
 
-from pipeline import acquire, web
+from pipeline import acquire, decisions, web
 from pipeline.blobs import open_blob_store
-from pipeline.manifests import load_catalog, read_ledger, replay_ledger
+from pipeline.manifests import (
+    Catalog,
+    catalog_view,
+    load_catalog,
+    read_ledger,
+    replay_ledger,
+)
 from pipeline.store import (
     ConnectionFailed,
     IntegrityRefusal,
@@ -110,6 +116,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="request already-fetched files again to notice changed content",
     )
 
+    imports = commands.add_parser(
+        "import-decisions",
+        parents=[common],
+        help="import the crawler review page's decisions into the ledger",
+    )
+    imports.add_argument("file", nargs="?", help="decisions-<run_id>.json")
+    imports.add_argument(
+        "--reopen-only",
+        action="store_true",
+        help="only send changed approved crawler sources back to review",
+    )
+    commands.add_parser(
+        "origins",
+        parents=[common],
+        help="official and third-party question and key counts per exam",
+    )
+
     extract = commands.add_parser("extract", parents=[common], help="extract questions")
     extract.add_argument("--workers", type=int, default=os.cpu_count() or 1)
 
@@ -169,6 +192,12 @@ def writing() -> Generator[psycopg.Connection]:
         conn.close()
 
 
+def _catalog_view(args: argparse.Namespace) -> Catalog:
+    """``catalog.yaml`` plus exams and domains added by approved crawler decisions."""
+    state = replay_ledger(read_ledger(Path(args.ledger)))
+    return catalog_view(load_catalog(Path(args.catalog)), state)
+
+
 def _host_ledger(conn: psycopg.Connection) -> PostgresHostLedger:
     """The request-spacing ledger, creating the schema first if it is not there.
 
@@ -189,7 +218,7 @@ def _exams(args: argparse.Namespace) -> int:
     """Print the exam ids; read-only, so it takes no lock and needs no database."""
     if args.exam or args.edition:
         raise UsageError("exams lists every exam; --exam and --edition do not apply")
-    exams = sorted(load_catalog(Path(args.catalog)).exams)
+    exams = sorted(_catalog_view(args).exams)
     print(*exams, f"exams: count={len(exams)}", sep="\n")
     return EXIT_OK
 
@@ -198,7 +227,7 @@ def _candidates(args: argparse.Namespace) -> int:
     """Print the pending candidates; ids and domains only, never a URL path."""
     if args.edition:
         raise UsageError("candidates filters by --exam; --edition does not apply")
-    catalog = load_catalog(Path(args.catalog))
+    catalog = _catalog_view(args)
     try:
         pending = acquire.pending_candidates(catalog, Path(args.ledger), args.exam)
     except ValueError as error:
@@ -210,7 +239,7 @@ def _candidates(args: argparse.Namespace) -> int:
 
 
 def _discover(args: argparse.Namespace) -> int:
-    catalog = load_catalog(Path(args.catalog))
+    catalog = _catalog_view(args)
     with writing() as conn:
         if args.add_url:
             if not args.edition:
@@ -274,7 +303,7 @@ def _review(args: argparse.Namespace) -> int:
 
 
 def _fetch(args: argparse.Namespace) -> int:
-    catalog = load_catalog(Path(args.catalog))
+    catalog = _catalog_view(args)
     with writing() as conn:
 
         async def run() -> acquire.FetchSummary:
@@ -290,6 +319,9 @@ def _fetch(args: argparse.Namespace) -> int:
                     refresh=args.refresh,
                     source_ids=args.source_ids,
                     hosts=_host_ledger(conn),
+                    suspended=decisions.suspended_sources(
+                        conn, replay_ledger(read_ledger(Path(args.ledger)))
+                    ),
                 )
 
         try:
@@ -298,8 +330,48 @@ def _fetch(args: argparse.Namespace) -> int:
             raise UsageError(str(error)) from None
     print(
         f"fetch: fetched={summary.fetched} unchanged={summary.unchanged} "
-        f"refused={summary.refused} errors={summary.errors} skipped={summary.skipped}"
+        f"refused={summary.refused} errors={summary.errors} skipped={summary.skipped} "
+        f"skipped_reopened={summary.skipped_reopened}"
     )
+    return EXIT_OK
+
+
+def _import_decisions(args: argparse.Namespace) -> int:
+    """Turn the review page's decisions into ledger events (spec 003 FR-026)."""
+    if args.reopen_only == bool(args.file):
+        raise UsageError("give a decisions FILE, or --reopen-only")
+    try:
+        file = decisions.load_decisions(Path(args.file)) if args.file else None
+    except decisions.DecisionsError as error:
+        raise UsageError(str(error)) from None
+    with writing() as conn:
+        apply_schema(conn)
+        try:
+            summary = decisions.import_decisions(
+                conn, Path(args.ledger), load_catalog(Path(args.catalog)), file, _now()
+            )
+        except decisions.DecisionsError as error:
+            raise UsageError(str(error)) from None
+    for line in summary.lines:
+        print(line)
+    print(summary.line())
+    return EXIT_OK
+
+
+def _origins(args: argparse.Namespace) -> int:
+    """Per exam, official and third-party question and key counts (FR-029)."""
+    state = replay_ledger(read_ledger(Path(args.ledger)))
+    catalog = catalog_view(load_catalog(Path(args.catalog)), state)
+    with connect(dsn_from_env()) as conn:
+        apply_schema(conn)
+        counts = decisions.origin_counts(conn, state, catalog)
+    for exam_id in sorted(catalog.exams):
+        for origin in ("official", "third_party"):
+            entry = counts.get(exam_id, {}).get(origin, {"questions": 0, "keys": 0})
+            print(
+                f"origin exam={exam_id} {origin} questions={entry['questions']} "
+                f"keys={entry['keys']}"
+            )
     return EXIT_OK
 
 
@@ -311,6 +383,8 @@ HANDLERS: dict[str, Handler] = {
     "discover": _discover,
     "review": _review,
     "fetch": _fetch,
+    "import-decisions": _import_decisions,
+    "origins": _origins,
 }
 
 

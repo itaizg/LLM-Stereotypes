@@ -6,9 +6,10 @@ import hashlib
 import io
 import os
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, LiteralString, cast
 
 import psycopg
 import pytest
@@ -26,9 +27,11 @@ from pipeline.blobs import (
 )
 from pipeline.manifests import CatalogError, LedgerError
 from pipeline.store import (
+    SCHEMA_VERSION,
     ConnectionFailed,
     Counts,
     LockHeld,
+    PostgresHostLedger,
     StageSummary,
     apply_schema,
     connect,
@@ -37,6 +40,8 @@ from pipeline.store import (
     reconcile,
     record_host_request,
     redact,
+    reserve_host_slot,
+    schema_version,
     write_lock,
 )
 
@@ -237,6 +242,7 @@ class TestStore:
         self, db: psycopg.Connection
     ) -> None:
         db.execute("DROP TABLE host_requests")
+        db.execute("DROP TABLE schema_version")  # a store from before spec 003
         assert apply_schema(db) is True
         assert db.execute("SELECT count(*) FROM host_requests").fetchone() == (0,)
         assert apply_schema(db) is False
@@ -312,7 +318,7 @@ class TestStore:
         self, db: psycopg.Connection
     ) -> None:
         reconcile(db, "exams", key=["exam_id"], scope={}, rows=[EXAM_ROW])
-        bad = [{**EXAM_ROW, "name": "Changed"}, {**EXAM_ROW, "exam_id": "bogus"}]
+        bad = [{**EXAM_ROW, "name": "Changed"}, {**EXAM_ROW, "exam_id": "Bogus-Key"}]
         with pytest.raises(psycopg.errors.CheckViolation):
             reconcile(db, "exams", key=["exam_id"], scope={}, rows=bad)
         row = db.execute("SELECT name FROM exams WHERE exam_id = 'sat'").fetchone()
@@ -668,3 +674,155 @@ class TestAcquisitionCli:
         self, cli_env: psycopg.Connection, dataset: DatasetBuilder
     ) -> None:
         assert run_cli(dataset, "fetch", "src_nope") == cli.EXIT_USAGE
+
+
+# --- schema version 3 (spec 003): migration and host slots -----------------------
+
+SCHEMA_V2 = Path(__file__).parent / "fixtures" / "schema_v2.sql"
+
+
+def _shape(conn: psycopg.Connection) -> dict[str, object]:
+    """Tables, columns and CHECK constraints of the connection's schema."""
+    columns = conn.execute(
+        "SELECT table_name, column_name, data_type, is_nullable, column_default "
+        "FROM information_schema.columns WHERE table_schema = current_schema() "
+        "ORDER BY table_name, column_name"
+    ).fetchall()
+    checks = conn.execute(
+        "SELECT conrelid::regclass::text, conname, pg_get_constraintdef(oid) "
+        "FROM pg_constraint WHERE connamespace = current_schema()::regnamespace "
+        "ORDER BY 1, 2"
+    ).fetchall()
+    return {"columns": columns, "constraints": checks}
+
+
+@pytest.fixture
+def v2_store(test_dsn: str) -> Generator[psycopg.Connection]:
+    """A fresh schema holding the spec 002 store, as existing databases do."""
+    schema = f"t_{uuid.uuid4().hex}"
+    with psycopg.connect(test_dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            dsn = make_conninfo(test_dsn, options=f"-c search_path={schema}")
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                conn.execute(
+                    cast("LiteralString", SCHEMA_V2.read_text(encoding="utf-8"))
+                )
+                yield conn
+        finally:
+            admin.execute(
+                sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
+            )
+
+
+class TestSchemaVersion3:
+    def test_a_spec_002_store_migrates_to_the_fresh_schema(
+        self, v2_store: psycopg.Connection, db: psycopg.Connection
+    ) -> None:
+        assert schema_version(v2_store) == 0
+        assert apply_schema(v2_store) is True
+        assert schema_version(v2_store) == SCHEMA_VERSION
+        assert _shape(v2_store) == _shape(db)
+
+    def test_a_current_store_is_left_alone(self, db: psycopg.Connection) -> None:
+        assert schema_version(db) == SCHEMA_VERSION
+        assert apply_schema(db) is False
+
+    def test_a_version_3_store_migrates_to_version_4(
+        self, db: psycopg.Connection
+    ) -> None:
+        """Spec 004: a spec 003 store gains the approvals table and approval_id."""
+        fresh = _shape(db)
+        db.execute("ALTER TABLE crawler_runs DROP COLUMN approval_id")
+        db.execute("DROP TABLE crawler_budget_approvals")
+        db.execute("UPDATE schema_version SET version = 3")
+        assert apply_schema(db) is True
+        assert schema_version(db) == 4
+        assert _shape(db) == fresh
+
+    def test_the_migration_keeps_existing_rows(
+        self, v2_store: psycopg.Connection
+    ) -> None:
+        v2_store.execute(
+            "INSERT INTO host_requests VALUES ('a.test', to_timestamp(1700000000))"
+        )
+        apply_schema(v2_store)
+        assert load_host_requests(v2_store) == {"a.test": 1_700_000_000.0}
+
+    @pytest.mark.parametrize(
+        ("exam_id", "ok"),
+        [("abc_1", True), ("enem", True), ("Bad-Key", False), ("1abc", False)],
+    )
+    def test_the_exam_key_rule(
+        self, db: psycopg.Connection, exam_id: str, ok: bool
+    ) -> None:
+        row = {**EXAM_ROW, "exam_id": exam_id}
+        if ok:
+            reconcile(db, "exams", key=["exam_id"], scope={}, rows=[row])
+        else:
+            with pytest.raises(psycopg.errors.CheckViolation):
+                reconcile(db, "exams", key=["exam_id"], scope={}, rows=[row])
+
+    def test_crawler_is_a_discovery_method(self, db: psycopg.Connection) -> None:
+        db.execute(
+            "INSERT INTO sources (source_id, url, domain, discovery_method) "
+            "VALUES ('src_1', 'https://a.test/p.pdf', 'a.test', 'crawler')"
+        )
+
+
+EPOCH = 1_700_000_000.0
+
+
+class TestHostSlots:
+    """spec 003 FR-010, research R6: one atomic reservation per request."""
+
+    def test_the_first_slot_is_now_and_the_next_waits_an_interval(
+        self, db: psycopg.Connection
+    ) -> None:
+        wait, slot = reserve_host_slot(db, "a.test", 5.0, at_epoch=EPOCH)
+        assert (wait, slot.timestamp()) == (0.0, EPOCH)
+        wait, slot = reserve_host_slot(db, "a.test", 5.0, at_epoch=EPOCH + 1)
+        assert (wait, slot.timestamp()) == (4.0, EPOCH + 5)
+
+    def test_reservations_queue_behind_each_other(self, db: psycopg.Connection) -> None:
+        slots = [
+            reserve_host_slot(db, "a.test", 5.0, at_epoch=EPOCH)[1].timestamp()
+            for _ in range(4)
+        ]
+        assert slots == [EPOCH, EPOCH + 5, EPOCH + 10, EPOCH + 15]
+
+    def test_another_host_is_independent(self, db: psycopg.Connection) -> None:
+        reserve_host_slot(db, "a.test", 5.0, at_epoch=EPOCH)
+        assert reserve_host_slot(db, "b.test", 5.0, at_epoch=EPOCH)[0] == 0.0
+
+    def test_a_time_far_in_the_future_is_clock_skew(
+        self, db: psycopg.Connection
+    ) -> None:
+        record_host_request(db, "a.test", EPOCH + 3600)
+        wait, _slot = reserve_host_slot(db, "a.test", 5.0, at_epoch=EPOCH)
+        assert wait == 5.0
+
+    def test_two_connections_never_share_a_slot(self, schema_dsn: str) -> None:
+        """Two processes reserving one host in a tight loop, by the database clock."""
+        with (
+            psycopg.connect(schema_dsn, autocommit=True) as first,
+            psycopg.connect(schema_dsn, autocommit=True) as second,
+        ):
+            slots = [
+                reserve_host_slot(conn, "a.test", 5.0)[1]
+                for _ in range(5)
+                for conn in (first, second)
+            ]
+        ordered = sorted(slots)
+        assert len(set(ordered)) == len(ordered)
+        gaps = [(b - a).total_seconds() for a, b in pairwise(ordered)]
+        assert all(gap >= 5.0 for gap in gaps)
+
+    def test_the_ledger_asks_for_the_reserved_wait(
+        self, db: psycopg.Connection
+    ) -> None:
+        now = [EPOCH]
+        ledger = PostgresHostLedger(db, lambda: now[0])
+        assert ledger.reserve("a.test", 5.0) == 0.0
+        now[0] += 2
+        assert ledger.reserve("a.test", 5.0) == 3.0

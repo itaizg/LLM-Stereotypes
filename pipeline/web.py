@@ -80,15 +80,15 @@ class SystemClock:
 
 
 class HostLedger(Protocol):
-    """Where each host's last request time is kept between commands (SC-006).
+    """Shared request spacing across commands and processes (SC-006, spec 003 FR-010).
 
-    Times are wall-clock epoch seconds: a monotonic clock means nothing to the
-    next process. The Postgres-backed one is in ``store.py``.
+    ``reserve`` books the host's next slot at least ``interval_s`` after the previous
+    one and returns how many seconds to wait for it. Booking before sending means a
+    process killed mid-request still leaves its time behind, and two processes using
+    one host queue behind each other. The Postgres-backed one is in ``store.py``.
     """
 
-    def last(self, host: str) -> float | None: ...
-
-    def record(self, host: str, at: float) -> None: ...
+    def reserve(self, host: str, interval_s: float) -> float: ...
 
 
 @dataclass(frozen=True)
@@ -154,9 +154,9 @@ class Fetcher:
     """GET with the allowlist, robots.txt, redirect, and rate-limit rules applied.
 
     One instance per command run, so robots.txt is fetched once per domain.
-    Within a run, spacing uses the monotonic ``clock``. Across runs it uses the
-    optional ``ledger`` and the wall clock: the first request to a host waits out
-    whatever is left of the interval since the previous command's last request.
+    Without a ``ledger``, spacing uses the monotonic ``clock`` within the run. With
+    one, every request reserves its slot in the shared ledger, which spaces it from
+    this run's earlier requests and from every other process's alike.
     """
 
     def __init__(
@@ -165,13 +165,11 @@ class Fetcher:
         clock: Clock,
         interval: Callable[[str], float],
         ledger: HostLedger | None = None,
-        wall: Callable[[], float] = time.time,
     ) -> None:
         self._client = client
         self._clock = clock
         self._interval = interval
         self._ledger = ledger
-        self._wall = wall
         self._locks: dict[str, asyncio.Lock] = {}
         self._last: dict[str, float] = {}
         # Set by Retry-After or backoff: no request to the host before this time.
@@ -186,31 +184,23 @@ class Fetcher:
         async with self._locks.setdefault(host, asyncio.Lock()):
             ready = self._not_before.get(host, float("-inf"))
             last = self._last.get(host)
-            if last is not None:
+            if last is not None and self._ledger is None:
                 ready = max(ready, last + self._interval(host))
-            elif self._ledger is not None:
-                previous = self._ledger.last(host)
-                if previous is not None:
-                    # A time in the future (clock skew) counts as now.
-                    elapsed = max(0.0, self._wall() - previous)
-                    ready = max(
-                        ready, self._clock.now() + self._interval(host) - elapsed
-                    )
             wait = ready - self._clock.now()
             if wait > 0:
                 await self._clock.sleep(wait)
             if self._ledger is not None:
                 # Reserve the slot before sending: a process killed mid-request
                 # leaves this time behind, so the next command still waits.
-                self._ledger.record(host, self._wall())
+                slot_wait = self._ledger.reserve(host, self._interval(host))
+                if slot_wait > 0:
+                    await self._clock.sleep(slot_wait)
             try:
                 return await self._client.get(
                     url, headers={"User-Agent": USER_AGENT, **(headers or {})}
                 )
             finally:
                 self._last[host] = self._clock.now()
-                if self._ledger is not None:
-                    self._ledger.record(host, self._wall())
 
     async def _polite_get(
         self, url: str, headers: dict[str, str] | None = None

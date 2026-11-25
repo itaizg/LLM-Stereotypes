@@ -13,6 +13,15 @@ name: CI
 # The "dagster" job adds the optional orchestration extra to run tests/dagster,
 # validate the Dagster definitions and check the compose stack builds (constitution
 # amendment A3). The harness jobs never install it.
+#
+# The "crawler" job adds the optional crawler extra and a loopback Postgres service to
+# test the crawler agent (spec 003) against recorded, synthetic responses and a
+# scripted fake model: no network, no API keys (constitution 1.5.0).
+#
+# The pytest jobs each record coverage data without a threshold; the
+# "coverage" job combines them and applies the 85% gate configured in
+# pyproject.toml (constitution 1.4.0). No single job tests every package, so the
+# gate only makes sense on the combined data.
 
 on:
   push:
@@ -61,10 +70,21 @@ jobs:
           uv sync --locked --extra dev
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
-      # tests/pipeline needs the pipeline extra and Postgres, so it has its own
-      # job below; the core job proves the harness stands alone.
+      # tests/pipeline and tests/crawler need their extras and Postgres, so they have
+      # their own jobs below; the core job proves the harness stands alone.
       - name: pytest
-        run: pytest -q --ignore=tests/pipeline --ignore=tests/dagster
+        run: >-
+          pytest -q --ignore=tests/pipeline --ignore=tests/dagster --ignore=tests/crawler
+          --cov --cov-report= --cov-fail-under=0
+        env:
+          COVERAGE_FILE: .coverage.test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-test
+          path: .coverage.test
+          include-hidden-files: true
+          if-no-files-found: error
 
   pipeline:
     name: pipeline pytest
@@ -102,7 +122,16 @@ jobs:
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: pytest (pipeline)
-        run: pytest tests/pipeline -q
+        run: pytest tests/pipeline -q --cov --cov-report= --cov-fail-under=0
+        env:
+          COVERAGE_FILE: .coverage.pipeline
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pipeline
+          path: .coverage.pipeline
+          include-hidden-files: true
+          if-no-files-found: error
 
   dagster:
     name: dagster pytest and compose
@@ -123,7 +152,16 @@ jobs:
       # CI=true makes tests/dagster fail, instead of skipping, if Dagster is
       # somehow not importable. No scheduler, daemon or network is needed.
       - name: pytest (dagster)
-        run: pytest tests/dagster -q
+        run: pytest tests/dagster -q --cov --cov-report= --cov-fail-under=0
+        env:
+          COVERAGE_FILE: .coverage.dagster
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-dagster
+          path: .coverage.dagster
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: ty (orchestration)
         run: ty check orchestration tests/dagster
@@ -144,6 +182,81 @@ jobs:
 
       - name: Build the Dagster image
         run: docker build -f orchestration/Dockerfile -t exam-dagster .
+
+  crawler:
+    name: crawler pytest
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A throwaway database on the job's own service container: no secret.
+      PIPELINE_TEST_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install core + dev + pipeline + crawler dependencies
+        run: |
+          uv sync --locked --extra dev --extra pipeline --extra crawler
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # The offline replay eval (FR-035) runs here: synthetic recordings, a scripted
+      # fake chat model, no network and no keys.
+      - name: pytest (crawler)
+        run: pytest tests/crawler -q --cov --cov-report= --cov-fail-under=0
+        env:
+          COVERAGE_FILE: .coverage.crawler
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-crawler
+          path: .coverage.crawler
+          include-hidden-files: true
+          if-no-files-found: error
+
+  coverage:
+    name: coverage gate
+    runs-on: ubuntu-latest
+    needs: [test, pipeline, dagster, crawler]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install core + dev dependencies
+        run: |
+          uv sync --locked --extra dev
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+
+      # With no arguments, combine picks up every .coverage.* file downloaded above, so a
+      # new test job only needs its own upload step. fail_under = 85 comes from
+      # [tool.coverage.report] in pyproject.toml.
+      - name: Combine and check coverage
+        run: |
+          coverage combine
+          coverage report
 
   harness-smoke:
     name: harness CLI end-to-end

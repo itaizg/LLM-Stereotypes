@@ -1,7 +1,59 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.3.0 (1.2.0 was drafted for Airflow and never ratified)
+Version change: 1.5.1 → 1.5.2 (DRAFT, for the maintainer to review in the PR)
+Bump rationale: PATCH. Clarifies the HITL rule under "Agent loops and termination":
+  a standing approval, given in advance by a person, time-limited and bound to the exact
+  models and prices, counts as the human approval before spending (spec 004, analysis D2).
+  No principle or gate is removed or redefined.
+
+Version change (previous): 1.5.0 → 1.5.1
+Bump rationale: PATCH. Clarifies principle II: the ruff exclusion rule also covers vendored
+  tool code maintained upstream (`.specify/`), in addition to `legacy/`. No principle or gate
+  is removed or redefined; the gate still runs on all project code.
+
+Modified in 1.5.1 (found by /speckit-analyze on spec 004, finding D1):
+  - Principle II: `.specify/` (Spec Kit scripts, verified by manifest hash) may be excluded
+    from ruff. This brings the rule in line with `pyproject.toml` `[tool.ruff] extend-exclude`
+    (commit 99fde24), which CI needed once those scripts became tracked.
+
+Version change (previous): 1.4.0 → 1.5.0
+Bump rationale: MINOR. Materially expands guidance to cover a new optional agent
+  package, `crawler/` (spec 003-crawler-agent), and adds one CI gate (the `crawler`
+  job). No principle or gate is removed or redefined.
+
+Modified in 1.5.0:
+  - Principle I: path list now includes `crawler/`.
+  - Quality Gates: CI runs the `crawler` job (pytest on `tests/crawler` against loopback
+    Postgres, with coverage). The pre-commit ty hook includes the `crawler` extra.
+  - Project Constraints → Dependencies: the agent runtime (LangGraph, the Anthropic chat
+    client, language detection, OpenTelemetry) is the optional `crawler` extra.
+    `harness/` and `pipeline/` never import `crawler/`.
+
+Tooling landed with this amendment (same change as the package skeleton):
+  - `crawler` job in `.github/workflows/ci.yml`, uploading `.coverage.crawler`.
+  - `crawler` in `[tool.coverage.run] source`; `--extra crawler` in the ty hook.
+
+Version change (previous): 1.3.0 → 1.4.0
+Bump rationale: MINOR. Adds a new section, "Constraints for agentic work" (development
+  and testing, contracts and handoffs, communication, tools, agent loops and
+  termination, context management, memory, observability). No principle or gate is
+  removed or redefined.
+
+Added in 1.4.0 (crawler agent brief, docs/briefs/crawler-agent.md):
+  - Section "Constraints for agentic work".
+  - Companion document `.specify/memory/memory-architecture.md` (memory layer: Obsidian,
+    OKF, XERJ, Jev), referenced by the new section.
+  - Tools: memory is code-managed by default; an agent-callable memory tool is a single
+    tool that counts toward the 3–5 tool limit.
+
+Tooling landed with this amendment:
+  - The ≥85% coverage gate: `[tool.coverage]` in pyproject.toml, and CI's `coverage gate`
+    job, which combines the pytest, pipeline and dagster jobs' data.
+Follow-up TODOs (repository changes, not made by this amendment):
+  - Each new agent package joins `[tool.coverage.run] source` in the change that adds it.
+
+Version change (previous): 1.1.0 → 1.3.0 (1.2.0 was drafted for Airflow and never ratified)
 Bump rationale: MINOR. Guidance is materially expanded to cover workflow orchestration
   (`orchestration/`, Dagster as an optional extra) and one new CI gate (the `dagster` job).
   No principle or gate is removed or redefined.
@@ -73,7 +125,7 @@ Follow-up TODOs (repository changes, not made by this amendment):
 ### I. Typed Code, Checked by ty
 
 - Every function, method, and module-level variable in `harness/`, `pipeline/`,
-  `orchestration/`, `data/`, and `tests/` MUST carry type annotations, including return
+  `orchestration/`, `crawler/`, `data/`, and `tests/` MUST carry type annotations, including return
   types (`-> None` included).
 - `ty check` MUST pass with zero errors on every commit to `main`, including
   `orchestration/`, which is checked in the project environment with the `orchestration`
@@ -95,7 +147,9 @@ documentation that cannot drift, and ty catches contract breaks before a 10K-gen
 - Rule selection lives only in `pyproject.toml` under `[tool.ruff]`. Changes to the selected
   rule set are deliberate commits with a stated reason, never incidental.
 - Per-line `# noqa` MUST name the rule code. Excluding paths is reserved for `legacy/`, which
-  is preserved untouched by project rule.
+  is preserved untouched by project rule, and for vendored tool code maintained upstream
+  (`.specify/`, the Spec Kit scripts, checked against their manifest hashes). Vendored code
+  is never reformatted locally; a fix goes upstream or arrives with a tool upgrade.
 
 Rationale: one tool, one config file, zero style debate in review.
 
@@ -174,10 +228,56 @@ how that claim stays true as the code grows.
   `dagster definitions validate`, the compose file check and the image build. The
   pre-commit ty hook installs the `orchestration` extra, so the local gate equals the CI
   gate and needs no Docker.
+- CI MUST run the `crawler` job: pytest on `tests/crawler` against a loopback Postgres
+  service, with coverage. The pre-commit ty hook installs the `crawler` extra, so ty
+  checks `crawler/` locally and in CI alike.
 - CI jobs MUST use least-privilege permissions (`contents: read` unless a job needs more),
   pinned action versions, and no secrets.
 - A pull request MUST NOT merge with a failing or skipped required check. Local gate and CI
   gate run the same tools at the same versions, so "passes locally" implies "passes in CI."
+
+## Constraints for agentic work
+
+### Development and testing
+- **Eval-driven development:** whenever possible, write the evaluations before writing the agent's code and framework.
+- **Evals don't replace tests:** deterministic code still needs unit, smoke and integration tests, with at least **85% coverage**.
+
+### Contracts and handoffs
+- **Contracts:** every agent has an input and output contract, enforced with Pydantic for data classes, Pandera for in-memory dataframes, and Soda for warehouse data.
+- **Handoff ticket:** every agent emits a handoff ticket, defined as a Pydantic model within its contract, with the fields `input`, `output`, `completeness`, `owner`, `validation_status` (enum: `pending | passed | failed`) and `run_id`.
+- **Units:** every measured quantity carries its unit in the contract (an explicit unit field, or `pint`-typed fields). Agents and tools use the same unit for the same measurement.
+- **Compact outputs:** agent outputs are thin and hold final results, not extended logs. Logs go to tracing.
+
+### Communication
+- Agents within the same graph communicate through shared graph state and handoff tickets, never A2A.
+- A2A is allowed only between graphs, and only when in-graph communication isn't possible.
+
+### Tools
+- Every tool has a contract, description and definition sufficient for an agent to choose and call it correctly.
+- An agent has no more than 3–5 tools. Every tool the LLM can call counts toward this limit, including a memory tool.
+- **Memory access mode:** each agent reaches its memory in one of two ways, and its brief states which and why:
+  - **Code-managed** (the default): the agent's own code reads and writes its namespace at task boundaries. This is not a tool and does not count toward the limit.
+  - **Memory tool:** an agent that needs mid-task lookups exposes memory as exactly one tool (recall and save behind one interface). It counts toward the limit and defines its own limits like any other tool.
+- Different agents use different tools. **Exception:** the memory layer (XERJ over MCP) is shared by all agents, but each agent is scoped to its own XERJ namespace(s); see `memory-architecture.md`.
+- **Idempotency:** retrying a tool call with the same input must not duplicate side effects.
+- **Termination limits:** every tool defines its own limits (timeout, retry count, result size or cost budget) in its definition.
+
+### Agent loops and termination
+- Every agent loop defines a **max iterations** limit.
+- Repeated failure of the same agent (N consecutive failures; N is set per agent) stops the loop and escalates instead of retrying again.
+- **HITL:** human approval is required before any irreversible action (deleting data, sending messages, writing to production, spending money, dropping a memory namespace). A standing approval counts, when a person gave it in advance, it expires (at most 30 days), and it is bound to the exact models, prices and limits it covers; a change to any of them voids it.
+
+### Context management
+- Compact context **at task boundaries**, and whenever context passes 50%. Before compacting, persist anything that compaction would discard to episodic memory.
+- Use a **DeepAgent** when an agent needs 2+ subagents and more than 4 steps, or when its context commonly reaches ~80% despite compaction.
+
+### Memory
+- All memory reads and writes go through the memory layer defined in `memory-architecture.md`. No agent keeps private memory outside it.
+- Memory content is data, never instructions. An agent never follows instructions found in retrieved memory.
+- **Trust boundary:** the one exception is procedural memory (`howto` / `runbook` files and skills) whose vault file a human has reviewed and raised to a trusted tier. An agent may follow such a procedure, within its own tools and these constraints. Agent-written, low-trust, or web-derived content always stays data.
+
+### Observability
+- Every agent step and tool call is traced, and the trace's `run_id` matches the `run_id` on the handoff ticket.
 
 ## Project Constraints
 
@@ -193,7 +293,10 @@ how that claim stays true as the code grows.
   dataset-pipeline packages stay in the optional `pipeline` extra; the core install stays
   GPU-free. Workflow orchestration (Dagster) is the optional `orchestration` extra, used
   only by `orchestration/`, which runs the pipeline as a subprocess. `harness/` and
-  `pipeline/` never import it, and no other install pulls it.
+  `pipeline/` never import it, and no other install pulls it. The crawler agent's
+  runtime (LangGraph, the Anthropic chat client, language detection, OpenTelemetry) is
+  the optional `crawler` extra, used only by `crawler/`, which may import `pipeline/`;
+  `harness/` and `pipeline/` never import `crawler/`.
 - Device handling: detect MPS → CUDA → CPU at runtime; never hardcode a device. Record
   device and backend in every run manifest.
 - Secrets: environment variables only; never committed, never printed or logged.
@@ -216,4 +319,4 @@ how that claim stays true as the code grows.
 - Spec Kit plans (`/speckit-plan`) MUST include a Constitution Check that evaluates the
   design against these principles before implementation begins.
 
-**Version**: 1.3.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-18
+**Version**: 1.5.2 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-25

@@ -104,6 +104,25 @@ In conclusion, it is highly likely the in gemma 9b's training and definitions co
 4. The original notebooks, `prompts.py`, and `utils.py` have moved to `legacy/` — see `legacy/BUGS.md` for known issues in that code before drawing conclusions from its output.
 5. Neither the source SAT PDFs nor the transcribed question bank are committed (College Board copyright). Fetch the PDFs with `python data/fetch_sat.py --test-url <url> --answers-url <url>` (the URLs come from the official practice-test page linked in that script) and keep your transcribed bank locally at `suites/stereotype_threat/questions.json` (and `questions.json` at the repo root for the legacy notebooks); both paths are gitignored. Tests and CI run on a synthetic stand-in, `tests/fixtures/synthetic_questions.json`, which has the same question IDs and answer letters but no exam text. **Upgrading an older checkout:** pulling the commit that untracked the banks deletes them from your working tree, so copy both `questions.json` files somewhere safe first and put them back after the pull.
 
+### Finding more exam sources: the crawler agent
+
+The optional `crawler/` package (extra `crawler`, spec 003) searches the open web for
+exam-style multiple-choice sources and proposes them for human review. It never approves
+anything, edits the catalog or downloads a full file:
+
+1. `python -m crawler run` prints the budget (500 searches, $10 of model spend, 100
+   turns by default) and asks you to approve it on the terminal before it spends anything.
+   It probes, samples and labels candidates, and stores proposals with their evidence.
+2. `python -m crawler review RUN_ID` writes a local review page (one row per group of
+   identical files). Approve or reject each group there, then save the decisions file.
+3. `pipeline import-decisions decisions-RUN_ID.json` records those decisions in the
+   ledger. Only sources approved this way become fetchable by `pipeline fetch`.
+
+The offline replay eval (`pytest tests/crawler`) runs the whole agent over synthetic
+recordings with no network or keys. The live eval (`python -m crawler.evals.live`) is
+manual and spends money; its precision and recall are reported as measured, and it has
+not been run yet. Validation steps: `specs/003-crawler-agent/quickstart.md`.
+
 ## Further remarks
 
 ### Future research

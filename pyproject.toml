@@ -19,6 +19,7 @@ dev = [
     "pre-commit==4.4.0",
     "pre-commit-uv==4.3.0",
     "ty==0.0.96",
+    "pytest-cov==7.1.0",
 ]
 model = [
     "torch",
@@ -39,6 +40,8 @@ pipeline = [
     "pdfplumber>=0.11",
     "pytesseract>=0.3.13",
     "openai>=1.50",
+    # The decisions-file contract (pipeline/decisions.py, spec 003).
+    "pydantic>=2.9,<3",
 ]
 
 # Dagster orchestration (specs/002-airflow-orchestration, amendment A3). Optional and
@@ -50,11 +53,24 @@ orchestration = [
     "dagster-postgres==0.29.30",
 ]
 
+# The crawler agent (specs/003-crawler-agent). Optional; it reuses the pipeline extra
+# (httpx, psycopg, beautifulsoup4, pdfplumber) and is never imported by harness/ or
+# pipeline/ (enforced by tests/crawler/test_guard.py).
+crawler = [
+    "langgraph>=1.0,<2",
+    "langchain-anthropic>=1.0,<2",
+    "pydantic>=2.9,<3",
+    "lingua-language-detector>=2.1,<3",
+    "opentelemetry-sdk>=1.30,<2",
+    # Export to self-hosted Langfuse over OTLP/HTTP (spec 004, research R6).
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+]
+
 [project.scripts]
 pipeline = "pipeline.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["harness*", "pipeline*", "legacy*"]
+include = ["harness*", "pipeline*", "crawler*", "legacy*"]
 
 [tool.ruff]
 line-length = 88
@@ -65,6 +81,9 @@ extend-exclude = [
     "legacy/prompts.py",
     "legacy/utils.py",
     "legacy/BUGS.md",
+    # Vendored Spec Kit scripts: upstream code, checked by their manifest hashes,
+    # never reformatted here.
+    ".specify/",
 ]
 
 [tool.ruff.lint]
@@ -100,3 +119,25 @@ allowed-unresolved-imports = ["torch", "transformers", "openai"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Coverage gate (constitution 1.4.0, "Constraints for agentic work": deterministic code
+# needs >= 85% coverage). `pytest --cov` measures the packages below and fails under the
+# threshold. It is opt-in rather than in addopts: CI runs the harness, pipeline and dagster
+# tests as separate jobs, and each would fall short on the packages it does not test.
+# CI's "coverage" job combines the three jobs' data and applies the threshold there.
+# Locally, the gate is meaningful only with PIPELINE_TEST_DSN set (a loopback Postgres,
+# e.g. pgserver): without it the database tests skip, the pipeline modules go mostly
+# unmeasured, and the total falls below 85% even though every runnable test passed.
+# Run `PIPELINE_TEST_DSN=... pytest --cov` with all extras installed for a local gate.
+[tool.coverage.run]
+source = ["harness", "pipeline", "orchestration", "crawler"]
+# CI combines the data of the test jobs; relative paths keep it mergeable.
+relative_files = true
+# iCloud Drive leaves "name 2.py" conflict copies in the working tree; they are never
+# tracked and must not count.
+omit = ["*/* [0-9].py"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true

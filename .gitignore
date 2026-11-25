@@ -164,6 +164,8 @@ cython_debug/
 
 # Harness run cache and downloaded source PDFs (not redistributed)
 results/cache/
+# Crawler review pages and decision files (docs/briefs/crawler-agent.md).
+results/crawler/
 data/pdfs/
 
 # Throwaway artifacts from the CI harness-smoke job (.github/workflows/ci.yml)
@@ -190,3 +192,19 @@ orchestration/dagster_home/*
 
 # Compose secrets (orchestration/.env.example is the tracked template)
 orchestration/.env
+
+# iCloud Drive conflict copies ("name 2.py", "Dockerfile 2", ...): never tracked.
+* [0-9]
+* [0-9].*
+
+# Local coding-agent tooling: per-machine skills, MCP and Spec Kit init options
+# (the init options hold an absolute path to the team directives checkout).
+.agents/
+.claude/skills/
+.codex/
+.mcp.json
+AGENTS.md
+.specify/init-options.json
+
+orchestration/langfuse/.env
+orchestration/n8n/.env
