@@ -82,7 +82,7 @@ def test_the_live_eval_needs_approval_and_writes_its_report(
     )
     env = {"PIPELINE_DSN": crawler_dsn, "ANTHROPIC_API_KEY": "k"}
     args = ["--set", str(labelled)]
-    assert live.main(args, env=env, ask=lambda _: "n", factory=factory) == 2
+    assert live.main(args, env=env, ask=lambda _: "n", factory=factory) == 3
     assert live.main(args, env={}, ask=lambda _: "y", factory=factory) == 2
     assert live.main(args, env=env, ask=lambda _: "y", factory=factory) == 0
     [report] = (tmp_path / "evals").glob("cr_*.json")

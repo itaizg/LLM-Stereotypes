@@ -65,3 +65,22 @@ def test_the_trace_file_is_written_under_the_run(tmp_path: Path) -> None:
     tracing.shutdown()
     lines = (tmp_path / RUN_ID / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(lines[0])["attributes"]["run_id"] == RUN_ID
+
+
+def test_trigger_token_and_otlp_headers_are_redacted() -> None:
+    """Spec 004 FR-010/FR-016: the new secrets are redacted like the API keys."""
+    env = {
+        "CRAWLER_TRIGGER_TOKEN": "trigger-SECRET-0123456789abcdef0123",
+        "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Basic cGstbGYtU0VDUkVUOnNrLWxm",
+    }
+    sink = io.StringIO()
+    tracing = Tracing(RUN_ID, sink, env=env)
+    with tracing.span(
+        "tool.web_search",
+        detail=f"token={env['CRAWLER_TRIGGER_TOKEN']} auth=cGstbGYtU0VDUkVUOnNrLWxm",
+    ):
+        pass
+    tracing.shutdown()
+    text = sink.getvalue()
+    assert "trigger-SECRET" not in text
+    assert "cGstbGYtU0VDUkVUOnNrLWxm" not in text

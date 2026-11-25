@@ -265,6 +265,23 @@ CREATE TABLE IF NOT EXISTS host_requests (
 -- Not dataset content: `pipeline rebuild` does not rebuild it, and no snapshot
 -- carries it. Proposals hold counts, hashes, URLs and labels, never question text.
 -- ---------------------------------------------------------------------------
+-- crawler_budget_approvals: a standing budget approval for unattended runs (spec 004,
+-- data-model.md). A person approves once at the terminal; it lasts 30 days and covers
+-- only the exact models and prices it was given for (pricing_fingerprint). At most
+-- one is active.
+CREATE TABLE IF NOT EXISTS crawler_budget_approvals (
+    approval_id         text PRIMARY KEY,
+    approved_by         text NOT NULL,
+    approved_at         timestamptz NOT NULL,
+    expires_at          timestamptz NOT NULL CHECK (expires_at > approved_at),
+    revoked_at          timestamptz,
+    limits              jsonb NOT NULL,
+    pricing_fingerprint text NOT NULL CHECK (pricing_fingerprint ~ '^[0-9a-f]{64}$'),
+    pricing             jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS crawler_budget_approvals_one_active
+    ON crawler_budget_approvals ((true)) WHERE revoked_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS crawler_runs (
     run_id            text PRIMARY KEY,
     config            jsonb NOT NULL,
@@ -282,6 +299,7 @@ CREATE TABLE IF NOT EXISTS crawler_runs (
     provider_switches jsonb NOT NULL DEFAULT '[]'::jsonb,
     started_at        timestamptz NOT NULL,
     ended_at          timestamptz,
+    approval_id       text REFERENCES crawler_budget_approvals (approval_id),
     CHECK (status <> 'stopped_at_limit' OR stop_limit IS NOT NULL)
 );
 
@@ -332,7 +350,7 @@ CREATE TABLE IF NOT EXISTS crawler_url_status (
     last_etag          text
 );
 
-INSERT INTO schema_version (id, version) VALUES (true, 3) ON CONFLICT (id) DO NOTHING;
+INSERT INTO schema_version (id, version) VALUES (true, 4) ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- questions_flat: one row per live question with its current key and preferred

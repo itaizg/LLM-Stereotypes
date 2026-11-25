@@ -27,6 +27,7 @@ from pipeline.blobs import (
 )
 from pipeline.manifests import CatalogError, LedgerError
 from pipeline.store import (
+    SCHEMA_VERSION,
     ConnectionFailed,
     Counts,
     LockHeld,
@@ -720,12 +721,24 @@ class TestSchemaVersion3:
     ) -> None:
         assert schema_version(v2_store) == 0
         assert apply_schema(v2_store) is True
-        assert schema_version(v2_store) == 3
+        assert schema_version(v2_store) == SCHEMA_VERSION
         assert _shape(v2_store) == _shape(db)
 
     def test_a_current_store_is_left_alone(self, db: psycopg.Connection) -> None:
-        assert schema_version(db) == 3
+        assert schema_version(db) == SCHEMA_VERSION
         assert apply_schema(db) is False
+
+    def test_a_version_3_store_migrates_to_version_4(
+        self, db: psycopg.Connection
+    ) -> None:
+        """Spec 004: a spec 003 store gains the approvals table and approval_id."""
+        fresh = _shape(db)
+        db.execute("ALTER TABLE crawler_runs DROP COLUMN approval_id")
+        db.execute("DROP TABLE crawler_budget_approvals")
+        db.execute("UPDATE schema_version SET version = 3")
+        assert apply_schema(db) is True
+        assert schema_version(db) == 4
+        assert _shape(db) == fresh
 
     def test_the_migration_keeps_existing_rows(
         self, v2_store: psycopg.Connection

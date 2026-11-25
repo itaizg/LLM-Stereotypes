@@ -1,0 +1,23 @@
+# n8n for the crawler (specs/004-crawler-orchestration). It only starts runs and maps
+# outcomes: it calls the local run trigger on the host and decides nothing else.
+# Secrets: N8N_ENCRYPTION_KEY comes from orchestration/n8n/.env (gitignored); the
+# trigger token and SMTP login live in n8n's encrypted credential store.
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:1.76.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set it in orchestration/n8n/.env}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      TZ: ${GENERIC_TIMEZONE:-UTC}
+      N8N_HOST: localhost
+      WEBHOOK_URL: http://localhost:5678/
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:

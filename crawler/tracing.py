@@ -32,13 +32,37 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace import Span as ApiSpan
 from opentelemetry.trace import Status, StatusCode
 
-SECRET_ENV = ("TAVILY_API_KEY", "BRAVE_API_KEY", "ANTHROPIC_API_KEY", "XERJ_TOKEN")
+SECRET_ENV = (
+    "TAVILY_API_KEY",
+    "BRAVE_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "XERJ_TOKEN",
+    "CRAWLER_TRIGGER_TOKEN",
+    "OTEL_EXPORTER_OTLP_HEADERS",
+)
+# Header lists hold secrets in their values (``Authorization=Basic <b64>``), and a value
+# may be logged on its own, so each value and its last word are redacted too (spec 004).
+HEADER_ENV = ("OTEL_EXPORTER_OTLP_HEADERS",)
 
 AttrValue = str | bool | int | float
 
 
+def _header_parts(headers: str) -> list[str]:
+    parts: list[str] = []
+    for item in headers.split(","):
+        _, _, value = item.partition("=")
+        value = value.strip()
+        parts += [value, value.rsplit(" ", 1)[-1]]
+    return parts
+
+
 def secret_values(env: Mapping[str, str]) -> tuple[str, ...]:
-    return tuple(v for k in SECRET_ENV if (v := env.get(k, "")) and len(v) >= 4)
+    found = [env.get(k, "") for k in SECRET_ENV]
+    for key in HEADER_ENV:
+        found += _header_parts(env.get(key, ""))
+    # Longest first, so a whole value is replaced before a part of it.
+    unique = {v for v in found if len(v) >= 4}
+    return tuple(sorted(unique, key=len, reverse=True))
 
 
 def redact_secrets(text: str, secrets: Sequence[str]) -> str:
@@ -122,7 +146,7 @@ class Tracing:
 
     def _add_otlp(self) -> None:
         try:
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # ty: ignore[unresolved-import] optional, not in the crawler extra
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
                 OTLPSpanExporter,
             )
         except ImportError:

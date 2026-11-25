@@ -88,9 +88,23 @@ def runs(dsn: str) -> list[tuple[Any, ...]]:
 
 
 @pytest.mark.parametrize("answer", [None, "", "n", "yes please"])
-def test_without_approval_nothing_runs(env: dict[str, str], answer: str | None) -> None:
-    assert run(env, answer) == 2
+def test_without_approval_nothing_runs(
+    env: dict[str, str], answer: str | None, results: Path
+) -> None:
+    """Spec 004: a refusal exits 3 (not approved), writes no row, only a summary."""
+    assert run(env, answer) == 3
     assert runs(env["PIPELINE_DSN"]) == []
+    [summary_path] = results.glob("cr_*/summary.json")
+    summary = json.loads(summary_path.read_text())
+    assert summary["status"] == "not_approved"
+    assert summary["cost_usd"] == 0 and summary["queries_used"] == 0
+
+
+def test_the_results_root_can_be_moved(env: dict[str, str], tmp_path: Path) -> None:
+    """Spec 004 FR-005a: CRAWLER_RESULTS_DIR moves the run artifacts."""
+    elsewhere = tmp_path / "elsewhere"
+    assert run({**env, "CRAWLER_RESULTS_DIR": str(elsewhere)}) == 0
+    assert list(elsewhere.glob("cr_*/summary.json"))
 
 
 def test_a_missing_key_is_named_never_printed(

@@ -25,6 +25,7 @@ import yaml
 
 from crawler.cli import (
     DEFAULT_FACTORY,
+    EXIT_NOT_APPROVED,
     EXIT_OK,
     EXIT_USAGE,
     RESULTS,
@@ -139,7 +140,7 @@ def main(
         print(
             "crawler.evals.live: budget not approved; nothing was run", file=sys.stderr
         )
-        return EXIT_USAGE
+        return EXIT_NOT_APPROVED
     out_dir = RESULTS / "evals"
     with (
         connect(environment["PIPELINE_DSN"]) as conn,

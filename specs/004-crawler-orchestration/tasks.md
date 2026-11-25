@@ -22,8 +22,8 @@ description: "Task list for spec 004, crawler orchestration and tracing"
 
 **Purpose**: dependencies and gitignore entries that the later phases need.
 
-- [ ] T001 Add `opentelemetry-exporter-otlp-proto-http>=1.30,<2` to the `crawler` extra in `pyproject.toml`, run `uv lock`, and commit `uv.lock`. Remove the `# ty: ignore[unresolved-import]` on the OTLP import in `crawler/tracing.py`, since the package is now installed
-- [ ] T002 [P] Add `orchestration/langfuse/.env` and `orchestration/n8n/.env` to `.gitignore`
+- [X] T001 Add `opentelemetry-exporter-otlp-proto-http>=1.30,<2` to the `crawler` extra in `pyproject.toml`, run `uv lock`, and commit `uv.lock`. Remove the `# ty: ignore[unresolved-import]` on the OTLP import in `crawler/tracing.py`, since the package is now installed
+- [X] T002 [P] Add `orchestration/langfuse/.env` and `orchestration/n8n/.env` to `.gitignore`
 
 ---
 
@@ -33,17 +33,17 @@ description: "Task list for spec 004, crawler orchestration and tracing"
 
 **⚠️ CRITICAL**: no user story work starts until this phase is done.
 
-- [ ] T003 [P] Write failing tests in `tests/crawler/test_crawler_cli.py`:
+- [X] T003 [P] Write failing tests in `tests/crawler/test_crawler_cli.py`:
   - an interactive refusal exits 3 (not 2) and writes `summary.json` with `status: "not_approved"` and no `crawler_runs` row
   - a usage error still exits 2
   - `CRAWLER_RESULTS_DIR` moves the run directory
-- [ ] T004 [P] Write failing tests in `tests/crawler/test_tracing.py`: `CRAWLER_TRIGGER_TOKEN` and `OTEL_EXPORTER_OTLP_HEADERS` values are redacted from span attributes and status messages
-- [ ] T005 In `crawler/cli.py`:
+- [X] T004 [P] Write failing tests in `tests/crawler/test_tracing.py`: `CRAWLER_TRIGGER_TOKEN` and `OTEL_EXPORTER_OTLP_HEADERS` values are redacted from span attributes and status messages
+- [X] T005 In `crawler/cli.py`:
   - add `EXIT_NOT_APPROVED = 3` and `EXIT_BUSY = 4`, and move the TTY refusal from `EXIT_USAGE` to `EXIT_NOT_APPROVED`
   - replace the `RESULTS` constant with a `results_root(env)` that reads `CRAWLER_RESULTS_DIR` (default `results/crawler`)
   - write a zero-count `summary.json` (`status` `not_approved` or `busy`) on refusal paths before returning (data-model.md, Run Artifacts)
-- [ ] T006 [P] Add `CRAWLER_TRIGGER_TOKEN` and `OTEL_EXPORTER_OTLP_HEADERS` to `SECRET_ENV` in `crawler/tracing.py`. Lower the minimum secret length for the headers value only if the tests in T004 need it
-- [ ] T007 Update the spec 003 CLI contract `specs/003-crawler-agent/contracts/cli.md` (analysis I2):
+- [X] T006 [P] Add `CRAWLER_TRIGGER_TOKEN` and `OTEL_EXPORTER_OTLP_HEADERS` to `SECRET_ENV` in `crawler/tracing.py`. Lower the minimum secret length for the headers value only if the tests in T004 need it
+- [X] T007 Update the spec 003 CLI contract `specs/003-crawler-agent/contracts/cli.md` (analysis I2):
   - move exit 2 "budget not approved" to 3, and add exit 4 busy, linking [contracts/cli.md](contracts/cli.md)
   - change step 2's "exits 2 and writes nothing" to "exits 3, writes no database rows, and writes only `summary.json` with `status: "not_approved"`"
   - grep `tests/crawler/` for assertions that a refused run leaves no run directory, and update them in the same commit as T005
@@ -60,19 +60,19 @@ description: "Task list for spec 004, crawler orchestration and tracing"
 
 ### Tests for User Story 1 ⚠️ (write first; they must fail)
 
-- [ ] T008 [P] [US1] Write `tests/crawler/test_approval.py` (loopback Postgres, `conftest.py` fixtures). Cases:
+- [X] T008 [P] [US1] Write `tests/crawler/test_approval.py` (loopback Postgres, `conftest.py` fixtures). Cases:
   - approve inserts an approval with a 30-day expiry
   - a second approve revokes the first, and the unique index allows only one active approval
   - `--revoke`
   - the check passes when limits are ≤ the cap with an equal pricing fingerprint
   - the check fails, with a distinct reason, for: none active, expired (with an injected `now`), a changed model price, a changed model name, and any limit above the cap
-- [ ] T009 [P] [US1] Write `tests/crawler/test_cli_run_standing.py`:
+- [X] T009 [P] [US1] Write `tests/crawler/test_cli_run_standing.py`:
   - `--approval standing` with no approval exits 3 before any `Factory` paid call (the fake factory asserts it's never invoked)
   - with a valid approval, the `crawler_runs` row has `approval_id`, `approved_by` and `approved_at` from the approval
   - while another connection holds `pg_advisory_lock(hashtext('crawler.run'))`, the run exits 4 and writes no row
   - `--run-id` with a bad format, or one that already exists, exits 2
   - calling the installed SIGTERM handler while a fake model call is blocked marks the run `failed` and writes `terminated: true`
-- [ ] T010 [P] [US1] Write `tests/crawler/test_trigger.py` against an in-process server on an ephemeral loopback port, with an injected fake launcher (no real subprocess). Cases:
+- [X] T010 [P] [US1] Write `tests/crawler/test_trigger.py` against an in-process server on an ephemeral loopback port, with an injected fake launcher (no real subprocess). Cases:
   - `/healthz` needs no auth
   - a missing or wrong token gets 401
   - the server refuses to start when the token is shorter than 32 characters
@@ -82,7 +82,7 @@ description: "Task list for spec 004, crawler orchestration and tracing"
   - when the deadline passes, the fake process gets SIGTERM, then SIGKILL, and `outcome: "timed_out"`
   - unknown run ids get 404
   - the exit code → outcome mapping matches data-model.md
-- [ ] T011 [P] [US1] Write `tests/crawler/test_orchestration_files.py`:
+- [X] T011 [P] [US1] Write `tests/crawler/test_orchestration_files.py`:
   - `orchestration/n8n/crawler-run.workflow.json` parses, has `active: false`, and has no credential values or `Bearer <value>` strings
   - every HTTP Request node URL starts with `http://host.docker.internal:8765/`
   - every outcome except `completed` and `skipped` reaches the Notify node
@@ -90,25 +90,25 @@ description: "Task list for spec 004, crawler orchestration and tracing"
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Write migration `pipeline/migrations/004_crawler_orchestration.sql` and mirror it in `pipeline/schema.sql`:
+- [X] T012 [US1] Write migration `pipeline/migrations/004_crawler_orchestration.sql` and mirror it in `pipeline/schema.sql`:
   - table `crawler_budget_approvals` (fields per data-model.md)
   - the unique partial index `((true)) WHERE revoked_at IS NULL`
   - `ALTER TABLE crawler_runs ADD COLUMN IF NOT EXISTS approval_id text REFERENCES crawler_budget_approvals`
   - make sure `pipeline.store.apply_schema` picks the migration up
-- [ ] T013 [US1] Write `crawler/approval.py`:
+- [X] T013 [US1] Write `crawler/approval.py`:
   - `pricing_fingerprint(config) -> str` (SHA-256 of canonical JSON of `agent_model` + `classifier_model`)
   - `create(conn, config, approved_by, now) -> Approval`, which revokes earlier approvals in the same transaction
   - `revoke(conn, now) -> bool`
   - `check(conn, config, now) -> Approval | Refusal`, where `Refusal.reason` is an enum: `none_active | expired | pricing_changed | over_cap`
   - typed Pydantic models; USD units in field metadata
-- [ ] T014 [US1] Add `crawler approve [--config FILE] [--revoke]` to `crawler/cli.py`: the TTY prompt `Approve this standing budget for 30 days? [y/N]`; no TTY or any other answer exits 3; prints `approval_id` and `expires_at` (contracts/cli.md)
-- [ ] T015 [US1] Extend `crawler run` in `crawler/cli.py`:
+- [X] T014 [US1] Add `crawler approve [--config FILE] [--revoke]` to `crawler/cli.py`: the TTY prompt `Approve this standing budget for 30 days? [y/N]`; no TTY or any other answer exits 3; prints `approval_id` and `expires_at` (contracts/cli.md)
+- [X] T015 [US1] Extend `crawler run` in `crawler/cli.py`:
   - `--approval tty|standing` (standing calls `approval.check` before `connect` to any paid service)
   - `--run-id` with format and uniqueness checks
   - `pg_try_advisory_lock(hashtext('crawler.run'))` on the main connection before the `crawler_runs` insert, with exit 4 when busy
   - record `approval_id`
   - a SIGTERM handler that raises inside the run so the existing failure path writes `failed` and `terminated: true`
-- [ ] T016 [US1] Write `crawler/trigger.py`:
+- [X] T016 [US1] Write `crawler/trigger.py`:
   - a stdlib `ThreadingHTTPServer` bound to `127.0.0.1`
   - bearer auth with `hmac.compare_digest`; refuse to start without a token of 32+ characters
   - Pydantic request and response models
@@ -118,13 +118,13 @@ description: "Task list for spec 004, crawler orchestration and tracing"
   - `trigger.json` written at launch and at exit
   - the single `EXIT_TO_OUTCOME` mapping
   - `GET /runs/{id}` read from files plus the `crawler_runs` row
-- [ ] T017 [US1] Wire `python -m crawler trigger [--port 8765]` into `crawler/cli.py` / `crawler/__main__.py`
-- [ ] T018 [P] [US1] Write `orchestration/n8n/docker-compose.yaml`: n8n with a pinned tag, the `n8n_data` named volume, `N8N_ENCRYPTION_KEY` and timezone from `orchestration/n8n/.env`, port 5678 bound to `127.0.0.1`, and an `extra_hosts` entry `host.docker.internal:host-gateway`
-- [ ] T019 [US1] Build and export `orchestration/n8n/crawler-run.workflow.json` per [contracts/n8n-workflow.md](contracts/n8n-workflow.md):
+- [X] T017 [US1] Wire `python -m crawler trigger [--port 8765]` into `crawler/cli.py` / `crawler/__main__.py`
+- [X] T018 [P] [US1] Write `orchestration/n8n/docker-compose.yaml`: n8n with a pinned tag, the `n8n_data` named volume, `N8N_ENCRYPTION_KEY` and timezone from `orchestration/n8n/.env`, port 5678 bound to `127.0.0.1`, and an `extra_hosts` entry `host.docker.internal:host-gateway`
+- [X] T019 [US1] Build and export `orchestration/n8n/crawler-run.workflow.json` per [contracts/n8n-workflow.md](contracts/n8n-workflow.md):
   - Schedule `0 2 * * *` and the Webhook trigger
   - Start run, route the start response, Respond to Webhook, the poll loop with deadline + 15 min, route the outcome, and Notify (Send Email)
   - credentials referenced only by name; exported inactive
-- [ ] T020 [US1] Add an "Orchestration" section to `README.md` or `orchestration/n8n/README.md`, linking the quickstart. It covers starting the trigger, importing the workflow, naming the credentials and activating the schedule
+- [X] T020 [US1] Add an "Orchestration" section to `README.md` or `orchestration/n8n/README.md`, linking the quickstart. It covers starting the trigger, importing the workflow, naming the credentials and activating the schedule
 
 **Checkpoint**: T008–T011 pass. Quickstart B and C work by hand. US1 is a usable MVP even without Langfuse.
 

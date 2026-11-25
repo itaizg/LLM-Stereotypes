@@ -30,9 +30,13 @@ from psycopg.types.json import Jsonb
 SCHEMA_SQL = Path(__file__).parent / "schema.sql"
 MIGRATIONS = Path(__file__).parent / "migrations"
 
-# The version ``schema.sql`` creates, and the migration bringing an older store to it.
-SCHEMA_VERSION = 3
-_MIGRATION = MIGRATIONS / "003_crawler.sql"
+# The version ``schema.sql`` creates, and the migrations bringing an older store to it:
+# each (version, file) runs when the store is below that version, in order.
+SCHEMA_VERSION = 4
+_MIGRATIONS = (
+    (3, MIGRATIONS / "003_crawler.sql"),
+    (4, MIGRATIONS / "004_crawler_orchestration.sql"),
+)
 
 # A stored request time more than this far ahead of now is clock skew, not a pending
 # reservation, and counts as now (a reservation is at most a few intervals ahead).
@@ -86,11 +90,12 @@ def apply_schema(conn: psycopg.Connection) -> bool:
 
     An empty store gets ``schema.sql``, which is the latest schema. An older store
     (spec 001/002, no ``schema_version`` row) gets ``schema.sql`` for its missing
-    tables and then the migration for what that file cannot change in place (new
-    columns, replaced constraints), both in one transaction, so a failure leaves the
-    store as it was. A current store is left alone.
+    tables and then each migration above its version for what that file cannot
+    change in place (new columns, replaced constraints), all in one transaction, so
+    a failure leaves the store as it was. A current store is left alone.
     """
-    if schema_version(conn) >= SCHEMA_VERSION:
+    version = schema_version(conn)
+    if version >= SCHEMA_VERSION:
         return False
     row = conn.execute("SELECT to_regclass('exam_editions')").fetchone()
     is_empty = row is None or row[0] is None
@@ -99,7 +104,10 @@ def apply_schema(conn: psycopg.Connection) -> bool:
         # for a literal string to keep injectable text out of execute().
         conn.execute(cast("LiteralString", SCHEMA_SQL.read_text(encoding="utf-8")))
         if not is_empty:
-            conn.execute(cast("LiteralString", _MIGRATION.read_text(encoding="utf-8")))
+            for target, migration in _MIGRATIONS:
+                if version < target:
+                    sql_text = migration.read_text(encoding="utf-8")
+                    conn.execute(cast("LiteralString", sql_text))
     return True
 
 

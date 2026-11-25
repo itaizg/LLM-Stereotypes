@@ -205,3 +205,6 @@ orchestration/.env
 .mcp.json
 AGENTS.md
 .specify/init-options.json
+
+orchestration/langfuse/.env
+orchestration/n8n/.env
