@@ -1,7 +1,17 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.4.0 → 1.5.0
+Version change: 1.5.0 → 1.5.1
+Bump rationale: PATCH. Clarifies principle II: the ruff exclusion rule also covers vendored
+  tool code maintained upstream (`.specify/`), in addition to `legacy/`. No principle or gate
+  is removed or redefined; the gate still runs on all project code.
+
+Modified in 1.5.1 (found by /speckit-analyze on spec 004, finding D1):
+  - Principle II: `.specify/` (Spec Kit scripts, verified by manifest hash) may be excluded
+    from ruff. This brings the rule in line with `pyproject.toml` `[tool.ruff] extend-exclude`
+    (commit 99fde24), which CI needed once those scripts became tracked.
+
+Version change (previous): 1.4.0 → 1.5.0
 Bump rationale: MINOR. Materially expands guidance to cover a new optional agent
   package, `crawler/` (spec 003-crawler-agent), and adds one CI gate (the `crawler`
   job). No principle or gate is removed or redefined.
@@ -131,7 +141,9 @@ documentation that cannot drift, and ty catches contract breaks before a 10K-gen
 - Rule selection lives only in `pyproject.toml` under `[tool.ruff]`. Changes to the selected
   rule set are deliberate commits with a stated reason, never incidental.
 - Per-line `# noqa` MUST name the rule code. Excluding paths is reserved for `legacy/`, which
-  is preserved untouched by project rule.
+  is preserved untouched by project rule, and for vendored tool code maintained upstream
+  (`.specify/`, the Spec Kit scripts, checked against their manifest hashes). Vendored code
+  is never reformatted locally; a fix goes upstream or arrives with a tool upgrade.
 
 Rationale: one tool, one config file, zero style debate in review.
 
@@ -301,4 +313,4 @@ how that claim stays true as the code grows.
 - Spec Kit plans (`/speckit-plan`) MUST include a Constitution Check that evaluates the
   design against these principles before implementation begins.
 
-**Version**: 1.5.0 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-23
+**Version**: 1.5.1 | **Ratified**: 2026-11-03 | **Last Amended**: 2026-11-25
