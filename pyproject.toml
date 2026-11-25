@@ -79,6 +79,9 @@ extend-exclude = [
     "legacy/prompts.py",
     "legacy/utils.py",
     "legacy/BUGS.md",
+    # Vendored Spec Kit scripts: upstream code, checked by their manifest hashes,
+    # never reformatted here.
+    ".specify/",
 ]
 
 [tool.ruff.lint]
