@@ -193,8 +193,8 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
 
 - **Decision:** `CrawlerMemory` Protocol: `recall_queries()`, `recall_dead_hosts(now)`,
   `remember(entries)`. The `XerjMemory` adapter calls XERJ's REST API for namespace
-  `/_memory/agent-crawler`, with a 5 s timeout, 2 retries and at most 20 results per
-  call, and `XERJ_URL` and `XERJ_TOKEN` from the environment.
+  `/_memory/agent-crawler`, with a 5 s timeout, one retry and at most 20 results per
+  call, and `XERJ_URL` (and an optional `XERJ_TOKEN`) from the environment.
   - **Reads:** at run start.
   - **Writes:** at each task boundary.
   - **Entries:** typed records (`query_tried`, `dead_host` with `until`, `query_yield`),
@@ -207,10 +207,16 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
   FR-016a's re-check policy lives in Postgres (`crawler_url_status`), not in memory,
   because it is a correctness rule.
 - **Rationale:** the constitution routes all memory through the memory layer, and the
-  brief fixes the code-managed mode. XERJ is not installed on this machine, and the
-  adapter (`crawler/memory.py`, `XerjMemory`) uses an *assumed* endpoint shape
-  (`POST`/`GET {XERJ_URL}/v1/memory/_memory/agent-crawler/entries`). It is still
-  unconfirmed and must be checked against a running XERJ before the first live run. The Protocol keeps the
+  brief fixes the code-managed mode. The adapter (`crawler/memory.py`, `XerjMemory`) first
+  used an assumed endpoint shape. On 2026-11-24 it was rewritten to XERJ's real
+  agent-memory API, read from `engine/crates/xerj-api/src/memory_api.rs`:
+  `POST {XERJ_URL}/_memory/agent-crawler` stores `{id, text, metadata: {kind, data}}`
+  (an existing id is replaced, so ids are stable per query, per host, and per query
+  and run), and `GET {XERJ_URL}/_memory/agent-crawler?from=&size=` pages through
+  entries newest first; the adapter filters them by `metadata.kind`. `_recall` is not
+  used because it needs a text query or a vector. `XERJ_TOKEN` is optional, since a
+  node started with `--insecure` has no auth. This is checked against the source and a
+  fake that follows it, not yet against a running XERJ. The Protocol keeps the
   rest of the design independent of them.
 - **Alternatives:** a local JSON file (private memory, forbidden); a memory tool (needs a
   sixth tool, and the brief says not to).
@@ -227,6 +233,11 @@ when the task that adds them runs, and exact versions are pinned in `uv.lock` th
 - **Rationale:** vendor-neutral, works offline, and testable with the in-memory exporter.
 - **Alternatives:** LangSmith (hosted, vendor-specific); Langfuse SDK only (ties tracing
   to one backend; it is still reachable via OTLP).
+- **Update (spec 004):** the OTLP exporter is now in the `crawler` extra, so setting
+  `OTEL_EXPORTER_OTLP_ENDPOINT` really exports. Export is batched with a 5 s timeout,
+  and a failure is counted in `summary.json` `trace_export` and reported on the console;
+  it never changes the exit code. Prompt text goes only to the OTLP path, never to
+  `trace.jsonl`.
 
 ## R11. Units in contracts
 

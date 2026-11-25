@@ -7,7 +7,8 @@
 2. **Budget approval (FR-001, HITL):** the command prints the budget (queries, USD,
    iterations), the models and prices, and the exams searched first. It then asks
    `Approve this budget? [y/N]` on the TTY. Without a TTY, or on any answer but `y`, it
-   exits 2 and writes nothing. On approval, it records `approved_by` (`$USER`) and
+   exits 3, writes no database rows, and writes only a `summary.json` with
+   `status: "not_approved"` (spec 004). On approval, it records `approved_by` (`$USER`) and
    `approved_at` in `crawler_runs`.
 3. Runs the graph. Progress goes to stderr: one line per task.
 4. Writes `results/crawler/<run_id>/summary.json`, with status, stop limit, counts,
@@ -18,7 +19,7 @@
 - the key of the primary provider, at least one of `TAVILY_API_KEY` and
   `BRAVE_API_KEY`;
 - `ANTHROPIC_API_KEY`;
-- optional: `XERJ_URL` and `XERJ_TOKEN`, and `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- optional: `XERJ_URL` (with `XERJ_TOKEN` only when the node has auth on), and `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 Missing required keys give exit 2 and name the variable, never its value.
 
@@ -26,9 +27,14 @@ Missing required keys give exit 2 and name the variable, never its value.
 |---|---|
 | 0 | completed |
 | 1 | failed (unexpected error) |
-| 2 | usage error, or budget not approved |
+| 2 | usage error |
+| 3 | budget not approved (spec 004) |
+| 4 | busy: another run holds the run lock (spec 004) |
 | 5 | escalated: five consecutive failures of one tool (FR-003) |
 | 6 | stopped at a limit (FR-002); partial completeness, not retried |
+
+Spec 004 adds `approve`, `trigger`, `run --approval standing --run-id`: see
+[its CLI contract](../../004-crawler-orchestration/contracts/cli.md).
 
 ## `python -m crawler review RUN_ID [--out PATH]`
 

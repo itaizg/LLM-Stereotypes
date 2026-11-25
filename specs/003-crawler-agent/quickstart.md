@@ -14,7 +14,8 @@ These are the scenarios that show the feature works. Behaviour details are in
 - **Postgres:** a local server, with `PIPELINE_DSN` set (and `PIPELINE_TEST_DSN` for
   tests). The memory note `dev-environment-quirks` covers pgserver on this Mac.
 - **Live runs only:** `TAVILY_API_KEY` and/or `BRAVE_API_KEY`, and `ANTHROPIC_API_KEY`.
-  `XERJ_URL` and `XERJ_TOKEN` are optional.
+  `XERJ_URL` is optional (for example `http://localhost:9200` for a local
+  `xerj --insecure` node); `XERJ_TOKEN` is needed only when the node has auth on.
 
 ## 1. Offline replay eval (CI, no network): Story 1 and the safety criteria
 

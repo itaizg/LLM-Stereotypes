@@ -12,6 +12,7 @@ configured or it is unreachable; the run then records ``memory_available = false
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Protocol
@@ -91,14 +92,22 @@ class NullMemory:
 
 
 class XerjMemory:
-    """``CrawlerMemory`` over XERJ's REST API, namespace ``/_memory/agent-crawler``.
+    """``CrawlerMemory`` over XERJ's agent-memory REST API, namespace ``agent-crawler``.
 
-    The endpoint shape is an assumption until it is checked against a running XERJ
-    (research R9 left it to this adapter): entries are posted to
-    ``{url}/v1/memory/{namespace}/entries`` as ``{"type", "data"}`` and listed from
-    the same path with ``type``, ``limit`` and ``cursor`` parameters. Everything else
-    in the crawler depends only on the Protocol, so correcting the shape touches this
-    class alone.
+    The wire shape follows XERJ's ``memory_api.rs`` (checked 2026-11-24):
+
+    - store: ``POST {url}/_memory/agent-crawler`` with ``{id, text, metadata}``. The
+      typed entry travels in ``metadata`` as ``{"kind", "data"}``; ``text`` is a short
+      human-readable line, so the namespace also reads well through XERJ's own search.
+      Storing an existing ``id`` replaces it, so ids are stable per fact: one
+      ``query_tried`` per query, one ``dead_host`` per host, one ``query_yield`` per
+      query and run. The namespace grows with distinct facts, not with runs.
+    - recall: ``GET {url}/_memory/agent-crawler?from=&size=``, newest first, paged by
+      the ``next`` cursor. ``_recall`` is not used: it needs a non-empty text query or
+      a vector, and the crawler wants every entry of a kind, so entries are filtered by
+      ``metadata.kind`` here.
+    - auth: ``Authorization: Bearer <key>`` when a token is set. A node started with
+      ``--insecure`` has no auth, so the token is optional.
 
     Limits (FR-004): a 5 s timeout, one retry, 20 entries per page and at most 1 MB
     read per recall. Recalled entries are validated; a malformed one is dropped. A
@@ -109,11 +118,11 @@ class XerjMemory:
     PAGE = 20
 
     def __init__(
-        self, url: str, token: str, client: httpx.Client | None = None
+        self, url: str, token: str | None = None, client: httpx.Client | None = None
     ) -> None:
-        self._base = url.rstrip("/") + "/v1/memory/" + NAMESPACE.strip("/")
+        self._base = url.rstrip("/") + NAMESPACE
         self._client = client or httpx.Client(timeout=MEMORY_TIMEOUT_S)
-        self._headers = {"Authorization": f"Bearer {token}"}
+        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
         self.available = True
 
     def _request(
@@ -127,7 +136,7 @@ class XerjMemory:
             try:
                 response = self._client.request(
                     method,
-                    f"{self._base}/entries",
+                    self._base,
                     headers=self._headers,
                     timeout=MEMORY_TIMEOUT_S,
                     params=params,
@@ -147,31 +156,35 @@ class XerjMemory:
 
     def _recall(self, kind: str) -> list[dict[str, object]]:
         found: list[dict[str, object]] = []
-        cursor: str | None = None
+        offset = 0
         read = 0
         while True:
-            params = {"type": kind, "limit": str(self.PAGE)}
-            if cursor:
-                params["cursor"] = cursor
+            params = {"from": str(offset), "size": str(self.PAGE)}
             response = self._request("GET", params=params)
             read += len(response.content)
             if read > MEMORY_MAX_BYTES:
                 break
             body = response.json()
-            rows = body.get("entries") if isinstance(body, dict) else None
+            if not isinstance(body, dict):
+                break
+            rows = body.get("entries")
             for row in rows if isinstance(rows, list) else []:
-                if isinstance(row, dict) and row.get("type") == kind:
-                    data = row.get("data")
+                meta = row.get("metadata") if isinstance(row, dict) else None
+                if isinstance(meta, dict) and meta.get("kind") == kind:
+                    data = meta.get("data")
                     if isinstance(data, dict):
                         found.append(data)
-            cursor = body.get("next") if isinstance(body, dict) else None
-            if not isinstance(cursor, str) or not cursor:
+            nxt = body.get("next")
+            following = nxt.get("from") if isinstance(nxt, dict) else None
+            # A cursor that does not move forward would loop forever: stop instead.
+            if not isinstance(following, int) or following <= offset:
                 break
+            offset = following
         return found
 
     def check(self) -> None:
         """One small read, so an unreachable XERJ is noticed before the run starts."""
-        self._request("GET", params={"type": "query_tried", "limit": "1"})
+        self._request("GET", params={"size": "1"})
 
     def queries_tried(self) -> set[str]:
         keys: set[str] = set()
@@ -193,32 +206,50 @@ class XerjMemory:
                 hosts[entry.host] = entry
         return hosts
 
-    def _remember(self, kind: str, entry: Entry) -> None:
+    def _remember(self, kind: str, key: str, text: str, entry: Entry) -> None:
         if not self.available:
             return
+        body: dict[str, object] = {
+            "id": f"{kind}-{_digest(key)}",
+            "text": text,
+            "metadata": {"kind": kind, "data": entry.model_dump(mode="json")},
+        }
         try:
-            self._request(
-                "POST", json={"type": kind, "data": entry.model_dump(mode="json")}
-            )
+            self._request("POST", json=body)
         except (httpx.HTTPError, RuntimeError):
             self.available = False
 
     def record_query(self, entry: QueryTried) -> None:
-        self._remember("query_tried", entry)
+        key = query_key(entry.query)
+        self._remember("query_tried", key, f"query tried: {key}", entry)
 
     def record_yield(self, entry: QueryYield) -> None:
-        self._remember("query_yield", entry)
+        key = query_key(entry.query)
+        text = (
+            f"query yield: {key} passed={entry.passed_count} "
+            f"failed={entry.failed_count}"
+        )
+        self._remember("query_yield", f"{entry.run_id}\n{key}", text, entry)
 
     def record_dead_host(self, entry: DeadHost) -> None:
-        self._remember("dead_host", entry)
+        text = f"dead host: {entry.host} ({entry.reason})"
+        self._remember("dead_host", entry.host, text, entry)
+
+
+def _digest(key: str) -> str:
+    """A short id-safe digest, so queries and hosts never reach the id verbatim."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
 
 
 def open_memory(
     env: Mapping[str, str], client: httpx.Client | None = None
 ) -> CrawlerMemory:
-    """XERJ when ``XERJ_URL`` and ``XERJ_TOKEN`` are set and it answers, else none."""
-    url, token = env.get("XERJ_URL"), env.get("XERJ_TOKEN")
-    if not url or not token:
+    """XERJ when ``XERJ_URL`` is set and it answers, else none.
+
+    ``XERJ_TOKEN`` is optional: a local node started with ``--insecure`` has no auth.
+    """
+    url, token = env.get("XERJ_URL"), env.get("XERJ_TOKEN") or None
+    if not url:
         return NullMemory()
     memory = XerjMemory(url, token, client)
     try:
